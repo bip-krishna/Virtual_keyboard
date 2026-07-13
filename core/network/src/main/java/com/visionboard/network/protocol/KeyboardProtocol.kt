@@ -1,7 +1,6 @@
 package com.visionboard.network.protocol
 
 import kotlinx.serialization.EncodeDefault
-import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
