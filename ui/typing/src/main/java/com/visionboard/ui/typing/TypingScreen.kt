@@ -1,6 +1,11 @@
 package com.visionboard.ui.typing
 
-import android.view.ViewGroup
+import android.Manifest
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -47,6 +52,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +76,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.visionboard.ui.theme.DeepBlueDark
 import com.visionboard.ui.theme.FingerPosition
 import com.visionboard.ui.theme.KeyPress
@@ -82,8 +93,17 @@ fun TypingScreen(
     viewModel: TypingViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val stats by viewModel.typingStats.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    var cameraGranted by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED)
+    }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        cameraGranted = it
+    }
+    LaunchedEffect(Unit) {
+        if (!cameraGranted) cameraPermission.launch(Manifest.permission.CAMERA)
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(SurfaceDark)) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -129,22 +149,45 @@ fun TypingScreen(
             Box(
                 modifier = Modifier.weight(0.7f).fillMaxWidth()
             ) {
-                if (state.cameraActive) {
-                    CameraPreview(modifier = Modifier.fillMaxSize())
+                if (state.cameraActive && cameraGranted) {
+                    CameraPreview(
+                        onFrame = viewModel::processCameraFrame,
+                        onError = viewModel::onCameraError,
+                        modifier = Modifier.fillMaxSize(),
+                    )
                 } else {
                     Box(
                         modifier = Modifier.fillMaxSize().background(SurfaceDarkContainer),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("Camera Off", color = Color.Gray, fontSize = 18.sp)
+                        if (cameraGranted) {
+                            Text("Camera off", color = Color.Gray, fontSize = 18.sp)
+                        } else {
+                            TextButton(onClick = { cameraPermission.launch(Manifest.permission.CAMERA) }) {
+                                Text("Allow camera access")
+                            }
+                        }
                     }
                 }
 
-                if (state.showOverlay) {
+                if (state.showOverlay && state.cameraActive && cameraGranted) {
                     TypingOverlay(
                         state = state,
                         modifier = Modifier.fillMaxSize(),
                     )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(state.statusMessage, modifier = Modifier.weight(1f), fontSize = 13.sp)
+                TextButton(
+                    enabled = state.isTypingActive || state.currentHomography != null,
+                    onClick = { if (state.isTypingActive) viewModel.stopTyping() else viewModel.startTyping() },
+                ) {
+                    Text(if (state.isTypingActive) "Stop typing" else "Start typing")
                 }
             }
 
@@ -274,56 +317,74 @@ fun TypingScreen(
 // ── Camera Preview Composable ─────────────────────────────────────────────────
 
 @Composable
-private fun CameraPreview(modifier: Modifier = Modifier) {
+private fun CameraPreview(
+    onFrame: (Bitmap) -> Unit,
+    onError: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val previewView = remember(context) {
+        PreviewView(context).apply {
+            implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+            scaleType = PreviewView.ScaleType.FIT_CENTER
+        }
+    }
 
-    AndroidView(
-        modifier = modifier.clipToBounds(),
-        factory = { ctx ->
-            PreviewView(ctx).apply {
-                layoutParams = ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                )
-                scaleType = PreviewView.ScaleType.FIT_CENTER
-                id = android.R.id.primary
+    AndroidView(factory = { previewView }, modifier = modifier.clipToBounds())
 
-                val cameraExecutor = Executors.newSingleThreadExecutor()
-                val providerFuture = ProcessCameraProvider.getInstance(ctx)
-
-                providerFuture.addListener({
-                    val cameraProvider = providerFuture.get()
-                    val cameraSelector = CameraSelector.Builder()
-                        .requireLensFacing(CameraSelector.LENS_FACING_BACK)
-                        .build()
-
-                    val preview = Preview.Builder().build()
-                    preview.surfaceProvider = this.surfaceProvider
-
-                    val imageAnalysis = ImageAnalysis.Builder()
-                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                        .build()
-
-                    imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                        imageProxy.close()
-                    }
-
-                    try {
-                        cameraProvider.unbindAll()
-                        cameraProvider.bindToLifecycle(
-                            context as androidx.lifecycle.LifecycleOwner,
-                            cameraSelector,
-                            preview,
-                            imageAnalysis,
-                        )
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }, ContextCompat.getMainExecutor(ctx))
+    DisposableEffect(lifecycleOwner, previewView) {
+        val cameraExecutor = Executors.newSingleThreadExecutor()
+        val providerFuture = ProcessCameraProvider.getInstance(context)
+        val preview = Preview.Builder().build().apply { surfaceProvider = previewView.surfaceProvider }
+        val analysis = ImageAnalysis.Builder()
+            .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .setOutputImageRotationEnabled(true)
+            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build()
+        var cameraProvider: ProcessCameraProvider? = null
+        var disposed = false
+        analysis.setAnalyzer(cameraExecutor) { frame ->
+            try {
+                val bitmap = frame.toBitmap()
+                try {
+                    onFrame(bitmap)
+                } finally {
+                    bitmap.recycle()
+                }
+            } catch (error: Exception) {
+                Log.e("TypingCamera", "Could not read camera frame", error)
+                onError("Could not read camera frames")
+            } finally {
+                frame.close()
             }
-        },
-        update = { },
-    )
+        }
+
+        providerFuture.addListener({
+            if (!disposed) {
+                try {
+                    val provider = providerFuture.get()
+                    cameraProvider = provider
+                    provider.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        preview,
+                        analysis,
+                    )
+                } catch (error: Exception) {
+                    Log.e("TypingCamera", "Could not start rear camera", error)
+                    onError("Could not start the rear camera")
+                }
+            }
+        }, ContextCompat.getMainExecutor(context))
+
+        onDispose {
+            disposed = true
+            analysis.clearAnalyzer()
+            cameraProvider?.unbind(preview, analysis)
+            cameraExecutor.shutdown()
+        }
+    }
 }
 
 // ── Typing Overlay ────────────────────────────────────────────────────────────
@@ -333,20 +394,22 @@ private fun TypingOverlay(
     state: TypingUiState,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
-
     Canvas(modifier = modifier) {
-        val canvasWidth = size.width
-        val canvasHeight = size.height
+        val aspect = state.frameAspectRatio
+        if (aspect <= 0f) return@Canvas
+        val canvasWidth = minOf(size.width, size.height * aspect)
+        val canvasHeight = canvasWidth / aspect
+        val left = (size.width - canvasWidth) / 2
+        val top = (size.height - canvasHeight) / 2
 
         // Keyboard outline
         if (state.detectedCorners.isNotEmpty() && state.detectedCorners.size >= 4) {
             val corners = state.detectedCorners
             val path = androidx.compose.ui.graphics.Path().apply {
-                moveTo(corners[0].x * canvasWidth, corners[0].y * canvasHeight)
-                lineTo(corners[1].x * canvasWidth, corners[1].y * canvasHeight)
-                lineTo(corners[2].x * canvasWidth, corners[2].y * canvasHeight)
-                lineTo(corners[3].x * canvasWidth, corners[3].y * canvasHeight)
+                moveTo(left + corners[0].x * canvasWidth, top + corners[0].y * canvasHeight)
+                lineTo(left + corners[1].x * canvasWidth, top + corners[1].y * canvasHeight)
+                lineTo(left + corners[2].x * canvasWidth, top + corners[2].y * canvasHeight)
+                lineTo(left + corners[3].x * canvasWidth, top + corners[3].y * canvasHeight)
                 close()
             }
             drawPath(path, color = KeyboardHighlight, style = Stroke(width = 3f))
@@ -359,8 +422,8 @@ private fun TypingOverlay(
             while (x <= 1f) {
                 drawLine(
                     color = HomographyGrid.copy(alpha = 0.3f),
-                    start = Offset(x * canvasWidth, 0f),
-                    end = Offset(x * canvasWidth, canvasHeight),
+                    start = Offset(left + x * canvasWidth, top),
+                    end = Offset(left + x * canvasWidth, top + canvasHeight),
                     strokeWidth = 1f,
                 )
                 x += gridSpacing
@@ -369,8 +432,8 @@ private fun TypingOverlay(
             while (y <= 1f) {
                 drawLine(
                     color = HomographyGrid.copy(alpha = 0.3f),
-                    start = Offset(0f, y * canvasHeight),
-                    end = Offset(canvasWidth, y * canvasHeight),
+                    start = Offset(left, top + y * canvasHeight),
+                    end = Offset(left + canvasWidth, top + y * canvasHeight),
                     strokeWidth = 1f,
                 )
                 y += gridSpacing
@@ -379,8 +442,8 @@ private fun TypingOverlay(
 
         // Fingertips
         for (fingertip in state.detectedFingertips) {
-            val fx = fingertip.position.x * canvasWidth
-            val fy = fingertip.position.y * canvasHeight
+            val fx = left + fingertip.position.x * canvasWidth
+            val fy = top + fingertip.position.y * canvasHeight
 
             val isPressed = state.lastKeyPressed.isNotEmpty()
 

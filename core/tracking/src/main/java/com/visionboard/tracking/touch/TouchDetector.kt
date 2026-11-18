@@ -72,8 +72,8 @@ class TouchDetector @Inject constructor() {
 
             val probability = getContactProbability(finger, keyMapper)
 
-            val nearestKey = keyMapper.findNearestKey(finger.position)
-            val isInsideKey = nearestKey?.let { keyMapper.isPointInPolygon(finger.position, it.relativePolygon) } ?: false
+            val nearestKey = keyMapper.getKeyPressed(finger.position)
+            val isInsideKey = nearestKey != null
 
             val isPressDetected = evaluatePress(finger, state, probability, isInsideKey)
             val isReleaseDetected = evaluateRelease(finger, state, probability)
@@ -86,7 +86,7 @@ class TouchDetector @Inject constructor() {
                 state.framesInProximity = 0
                 state.pressStartTimeMs = now
 
-                val contactKey = nearestKey ?: keyMapper.findNearestKey(finger.position)
+                val contactKey = nearestKey
                 state.pressedKeyLabel = contactKey?.label
                 state.lastContactTimeMs = now
 
@@ -143,7 +143,7 @@ class TouchDetector @Inject constructor() {
         val now = System.currentTimeMillis()
 
         if (now - lastTouchEventTime < debounceMs) return false
-        if (state.isPressed) return false
+        if (state.isPressed || !isInsideKey) return false
 
         val pressThreshold = if (state.wasPressed) {
             PRESS_PROBABILITY_THRESHOLD + hysteresisOffset

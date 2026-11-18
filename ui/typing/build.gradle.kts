@@ -50,6 +50,10 @@ dependencies {
 
     implementation("androidx.camera:camera-core:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+    implementation("org.opencv:opencv:4.9.0")
 
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")

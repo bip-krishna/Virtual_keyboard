@@ -78,11 +78,11 @@ class HomographyEngine @Inject constructor() {
         srcMat.fromArray(*sourcePoints.map { Point(it.x.toDouble(), it.y.toDouble()) }.toTypedArray())
         dstMat.fromArray(*destinationPoints.map { Point(it.x.toDouble(), it.y.toDouble()) }.toTypedArray())
 
-        val homography = Mat()
+        var homography: Mat? = null
         val inlierMask = Mat()
 
         return try {
-            Calib3d.findHomography(
+            val matrix = Calib3d.findHomography(
                 srcMat,
                 dstMat,
                 Calib3d.RANSAC,
@@ -92,6 +92,7 @@ class HomographyEngine @Inject constructor() {
                 CONFIDENCE
             )
 
+            homography = matrix
             val inlierCount = if (!inlierMask.empty()) {
                 (0 until inlierMask.rows()).count { inlierMask[it, 0][0] != 0.0 }
             } else {
@@ -102,18 +103,18 @@ class HomographyEngine @Inject constructor() {
             val inlierRatio = if (totalPoints > 0) inlierCount.toFloat() / totalPoints else 0f
             val reprojectionError = computeReprojectionError(
                 sourcePoints, destinationPoints,
-                if (!homography.empty()) homography else null
+                matrix.takeUnless { it.empty() }
             )
 
             HomographyResult(
-                matrix = if (!homography.empty()) homography else run { homography.release(); null },
+                matrix = if (!matrix.empty()) matrix else run { matrix.release(); null },
                 inlierCount = inlierCount,
                 totalPoints = totalPoints,
                 inlierRatio = inlierRatio,
                 reprojectionError = reprojectionError,
             )
         } catch (e: Exception) {
-            homography.release()
+            homography?.release()
             HomographyResult(null, 0, sourcePoints.size, 0f, Float.MAX_VALUE)
         } finally {
             srcMat.release()

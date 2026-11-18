@@ -1,5 +1,7 @@
 package com.visionboard.ui.typing
 
+import android.graphics.Bitmap
+import android.graphics.PointF
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -9,25 +11,18 @@ import com.visionboard.common.models.FingerType
 import com.visionboard.common.models.FingertipState
 import com.visionboard.common.models.FrameResult
 import com.visionboard.common.models.HandType as CommonHandType
-import com.visionboard.common.utils.PerformanceMonitor
-import com.visionboard.geometry.calibration.CalibrationEngine
 import com.visionboard.geometry.homography.HomographyEngine
 import com.visionboard.settings.SettingsManager
 import com.visionboard.tracking.finger.FingerTracker
 import com.visionboard.tracking.finger.TrackedFinger
-import com.visionboard.tracking.gesture.FrameSnapshot
-import com.visionboard.tracking.gesture.GestureDetector
-import com.visionboard.tracking.gesture.GestureResult
 import com.visionboard.tracking.touch.TouchDetector
 import com.visionboard.vision.detector.KeyboardDetector
 import com.visionboard.vision.hand.HandTracker
 import com.visionboard.vision.keyboard.KeyPolygonMapper
 import com.visionboard.vision.model.HandLandmarkResult
 import com.visionboard.vision.model.KeyboardDetectionResult
-import com.visionboard.vision.model.Landmark
 import com.visionboard.vision.model.HandType as VisionHandType
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -37,7 +32,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import org.opencv.android.Utils
 import org.opencv.core.Mat
+import org.opencv.imgproc.Imgproc
 import java.util.concurrent.ConcurrentLinkedDeque
 import javax.inject.Inject
 
@@ -55,15 +52,10 @@ sealed class TypingUiEvent {
 class TypingViewModel @Inject constructor(
     private val keyboardDetector: KeyboardDetector,
     private val handTracker: HandTracker,
-    private val fingerTracker: FingerTracker,
-    private val touchDetector: TouchDetector,
-    private val gestureDetector: GestureDetector,
     private val homographyEngine: HomographyEngine,
-    private val calibrationEngine: CalibrationEngine,
     private val keyPolygonMapper: KeyPolygonMapper,
     private val bluetoothHidHandler: BluetoothHidHandler,
     private val settingsManager: SettingsManager,
-    private val performanceMonitor: PerformanceMonitor,
 ) : ViewModel() {
 
     companion object {
@@ -91,18 +83,18 @@ class TypingViewModel @Inject constructor(
     private var accumulatedLatency = 0f
     private var latencySamples = 0
     private var accumulativePresses = 0
-    private var homographyValid = false
+    private data class HandTracking(val fingers: FingerTracker, val touches: TouchDetector)
 
-    private var lastKeyPressTime = 0L
+    private val handTracking = listOf(CommonHandType.LEFT, CommonHandType.RIGHT)
+        .associateWith { HandTracking(FingerTracker(), TouchDetector()) }
+    private var cleared = false
+
     private var lastTouchTime = 0L
     private var lastWpmTime = 0L
     private var lastFpsUpdate = 0L
     private var fpsCounter = 0
 
-    private var pressedKeysAtFrame = mutableSetOf<String>()
     private var pressedKeyHistory = ConcurrentLinkedDeque<String>()
-    private var fingerPositions = mutableMapOf<FingerType, TrackedFinger>()
-    private var detectedFingertips = mutableListOf<FingertipState>()
 
     init {
         loadInitialSettings()
@@ -157,63 +149,46 @@ class TypingViewModel @Inject constructor(
         }
     }
 
+    @Synchronized
     fun startTyping() {
-        viewModelScope.launch {
-            if (!homographyValid) {
-                _state.update { it.copy(statusMessage = "Calibration required before typing") }
-                return@launch
-            }
-
-            sessionStartTime = System.currentTimeMillis()
-            totalKeyPresses = 0
-            correctPresses = 0
-            incorrectPresses = 0
-            peakWpm = 0f
-            accumulativePresses = 0
-            fpsCounter = 0
-            accumulatedLatency = 0f
-            latencySamples = 0
-            lastFpsUpdate = System.currentTimeMillis()
-            lastWpmTime = System.currentTimeMillis()
-            fingerPositions.clear()
-            pressedKeysAtFrame.clear()
-            pressedKeyHistory.clear()
-            detectedFingertips.clear()
-
-            performanceMonitor.startFrame()
-            touchDetector.reset()
-            fingerTracker.reset()
-            gestureDetector.reset()
-
-            if (!bluetoothHidHandler.isConnected()) {
-                bluetoothHidHandler.connect()
-            }
-
-            _state.update {
-                it.copy(
-                    isTypingActive = true,
-                    cameraActive = true,
-                    statusMessage = "Typing active"
-                )
-            }
-            _events.emit(TypingUiEvent.TypingStarted)
+        if (_state.value.isTypingActive) return
+        if (_state.value.currentHomography == null) {
+            _state.update { it.copy(statusMessage = "Aim the rear camera at the entire keyboard cover") }
+            return
         }
+
+        sessionStartTime = System.currentTimeMillis()
+        totalKeyPresses = 0
+        correctPresses = 0
+        incorrectPresses = 0
+        peakWpm = 0f
+        accumulativePresses = 0
+        accumulatedLatency = 0f
+        latencySamples = 0
+        lastWpmTime = sessionStartTime
+        lastTouchTime = 0L
+        pressedKeyHistory.clear()
+        resetHands()
+
+        _state.update {
+            it.copy(
+                isTypingActive = true,
+                cameraActive = true,
+                lastKeyPressed = "",
+                totalKeyPresses = 0,
+                pressedKeyHistory = emptyList(),
+                statusMessage = "Typing active",
+            )
+        }
+        _events.tryEmit(TypingUiEvent.TypingStarted)
     }
 
+    @Synchronized
     fun stopTyping() {
-        viewModelScope.launch {
-            saveStats()
-            bluetoothHidHandler.disconnect()
-            performanceMonitor.reset()
-            _state.update {
-                it.copy(
-                    isTypingActive = false,
-                    cameraActive = false,
-                    statusMessage = "Session stopped"
-                )
-            }
-            _events.emit(TypingUiEvent.TypingStopped)
-        }
+        saveStats()
+        resetHands()
+        _state.update { it.copy(isTypingActive = false, statusMessage = "Session stopped") }
+        _events.tryEmit(TypingUiEvent.TypingStopped)
     }
 
     fun toggleDeveloperMode() {
@@ -229,8 +204,19 @@ class TypingViewModel @Inject constructor(
         _state.update { it.copy(showStatsPanel = !it.showStatsPanel) }
     }
 
+    @Synchronized
     fun toggleCamera() {
-        _state.update { it.copy(cameraActive = !it.cameraActive) }
+        val active = !_state.value.cameraActive
+        if (!active) {
+            stopTyping()
+            resetTracking()
+            handTracker.close()
+        }
+        _state.update { it.copy(cameraActive = active) }
+    }
+
+    fun onCameraError(message: String) {
+        _state.update { it.copy(statusMessage = message) }
     }
 
     fun dismissConnectionBanner() {
@@ -240,7 +226,7 @@ class TypingViewModel @Inject constructor(
     fun requestBluetoothPairing() {
         if (!bluetoothHidHandler.isConnected()) {
             viewModelScope.launch {
-                bluetoothHidHandler.connect()
+                bluetoothHidHandler.connect().collect {}
             }
         }
     }
@@ -363,187 +349,129 @@ class TypingViewModel @Inject constructor(
         }
     }
 
-    fun processRawFrame(
-        rgbMat: Mat,
-        grayMat: Mat,
-        timestamp: Long,
-    ) {
-        if (!_state.value.isTypingActive) return
-
-        updateFpsCounter()
-        performanceMonitor.startFrame()
-
+    @Synchronized
+    fun processCameraFrame(bitmap: Bitmap) {
+        if (cleared || !_state.value.cameraActive) return
         val loopStart = System.nanoTime()
-
         try {
-            val hasExistingCorners = _state.value.detectedCorners.isNotEmpty()
-
-            if (!hasExistingCorners) {
-                val detectionResult = keyboardDetector.detectKeyboard(grayMat, rgbMat)
-                if (detectionResult.detected && detectionResult.corners.size == 4) {
-                    keyboardDetector.setReferenceFrame(grayMat, detectionResult.corners)
-                    onKeyboardDetectionSuccess(detectionResult)
-                } else {
-                    val orbResult = keyboardDetector.detectUsingORB(grayMat, rgbMat)
-                    if (orbResult.detected && orbResult.corners.size == 4) {
-                        keyboardDetector.setReferenceFrame(grayMat, orbResult.corners)
-                        onKeyboardDetectionSuccess(orbResult)
-                    }
-                }
-            } else {
-                val orbResult = keyboardDetector.detectUsingORB(grayMat, rgbMat)
-                if (orbResult.detected && orbResult.corners.size >= 4) {
-                    onKeyboardDetectionSuccess(orbResult)
-                }
+            val width = bitmap.width
+            val height = bitmap.height
+            val aspect = width.toFloat() / height
+            if (_state.value.frameWidth != width || _state.value.frameHeight != height) {
+                resetTracking()
+                _state.update { it.copy(frameWidth = width, frameHeight = height) }
             }
 
-            val handLandmarks = handTracker.detectHand(rgbMat)
-            if (handLandmarks.isNotEmpty()) {
-                processHandLandmarks(handLandmarks, grayMat.cols(), grayMat.rows())
-            }
+            val hands = handTracker.detectHand(bitmap)
+            if (!_state.value.isTypingActive) updateKeyboard(bitmap)
+            updateHands(hands, width, height)
+            updateFpsCounter()
 
-            val trackedFingers = fingerTracker.getTrackedFingers()
-            if (trackedFingers.isNotEmpty()) {
-                processFingerPositions(trackedFingers)
-            }
-
-            if (_state.value.isTypingActive && trackedFingers.isNotEmpty()) {
-                val touches = touchDetector.detectTouches(trackedFingers, keyPolygonMapper)
-                for (touch in touches) {
-                    val now = System.currentTimeMillis()
-                    if (touch.isHighConfidence && now - lastTouchTime > DEBOUNCE_INTERVAL_MS) {
-                        sendKeyEvent(touch.keycode, touch.keyLabel)
-                    }
-                }
-            }
-
-            if (_state.value.isTypingActive) {
-                val frameSnap = FrameSnapshot(
-                    fingers = fingerTracker.getTrackedFingers(),
-                    timestamp = System.currentTimeMillis(),
-                )
-                gestureDetector.addFrameSnapshot(frameSnap)
-
-                val trackedFingersForGesture = fingerTracker.getTrackedFingers()
-                val gestureResult = gestureDetector.detectGesture(
-                    trackedFingersForGesture,
-                    emptyList()
-                )
-                if (gestureResult != null) {
-                    processGesture(gestureResult)
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in frame processing loop", e)
-        } finally {
-            val loopEnd = System.nanoTime()
-            val latencyMs = (loopEnd - loopStart) / 1_000_000.0f
-            accumulatedLatency += latencyMs
+            val latency = (System.nanoTime() - loopStart) / 1_000_000f
+            accumulatedLatency += latency
             latencySamples++
-            performanceMonitor.endFrame()
+            _state.update { it.copy(latencyMs = latency, frameAspectRatio = aspect) }
+        } catch (error: Exception) {
+            Log.e(TAG, "Camera frame processing failed", error)
+            onCameraError("Camera tracking failed. Turn the camera off and on to retry.")
+        }
+    }
 
-            if (latencyMs > 0) {
-                _state.update { state ->
-                    state.copy(
-                        fps = calculateFps(),
-                        latencyMs = if (latencySamples > 0) accumulatedLatency / latencySamples else 0f
-                    )
+    private fun updateKeyboard(bitmap: Bitmap) {
+        val rgba = Mat()
+        val gray = Mat()
+        try {
+            Utils.bitmapToMat(bitmap, rgba)
+            Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
+            val detection = keyboardDetector.detectKeyboard(gray, rgba)
+            if (detection.detected && detection.corners.size == 4) {
+                onKeyboardDetectionSuccess(detection)
+            } else {
+                _state.update {
+                    it.copy(detectedCorners = emptyList(), currentHomography = null,
+                        statusMessage = "Aim the rear camera at the entire keyboard cover")
                 }
             }
+        } finally {
+            gray.release()
+            rgba.release()
         }
     }
 
     private fun onKeyboardDetectionSuccess(result: KeyboardDetectionResult) {
-        homographyValid = true
-        val corners = result.corners
-        _state.update {
-            it.copy(
-                detectedCorners = corners,
-                statusMessage = if (result.detected) "" else "Keyboard tracking lost"
-            )
+        val state = _state.value
+        val corners = result.corners.map {
+            PointF(it.x / state.frameWidth, it.y / state.frameHeight)
         }
-
-        if (corners.size == 4) {
-            val refCorners = listOf(
-                PointF(0f, 0f),
-                PointF(1f, 0f),
-                PointF(1f, 1f),
-                PointF(0f, 1f),
-            )
-            val homography = homographyEngine.computeHomography(corners, refCorners)
-            if (homography.isValid && homography.matrix != null) {
-                val floatArray = FloatArray(9)
-                homography.matrix.get(0, 0, floatArray)
-                _state.update { it.copy(currentHomography = floatArray) }
-                homography.matrix.release()
+        val layoutCorners = listOf(PointF(0f, 0f), PointF(1f, 0f), PointF(1f, 1f), PointF(0f, 1f))
+        val homography = homographyEngine.computeHomography(corners, layoutCorners)
+        try {
+            val matrix = homography.matrix?.takeIf { homography.isValid } ?: return
+            val values = DoubleArray(9)
+            matrix.get(0, 0, values)
+            _state.update {
+                it.copy(
+                    detectedCorners = corners,
+                    currentHomography = FloatArray(9) { index -> values[index].toFloat() },
+                    statusMessage = "Keyboard detected. Keep the phone steady.",
+                )
             }
+        } finally {
+            homography.release()
         }
     }
 
-    private fun processHandLandmarks(results: List<HandLandmarkResult>, imageWidth: Int, imageHeight: Int) {
-        detectedFingertips.clear()
-
-        for (hand in results) {
-            if (hand.confidence < 0.5f) continue
-
-            val handType: CommonHandType = when (hand.handedness) {
-                VisionHandType.LEFT -> CommonHandType.LEFT
-                VisionHandType.RIGHT -> CommonHandType.RIGHT
-                VisionHandType.UNKNOWN -> continue
+    private fun updateHands(results: List<HandLandmarkResult>, width: Int, height: Int) {
+        val fingertips = mutableListOf<FingertipState>()
+        val state = _state.value
+        for ((side, tracking) in handTracking) {
+            val modelSide = if (side == CommonHandType.LEFT) VisionHandType.LEFT else VisionHandType.RIGHT
+            val hand = results.filter { it.handedness == modelSide }.maxByOrNull { it.confidence }
+            if (hand == null) {
+                tracking.fingers.reset()
+                tracking.touches.reset()
+                continue
             }
 
+            val keyFingers = mutableMapOf<FingerType, TrackedFinger>()
             for (landmark in hand.landmarks) {
-                if (landmark.visibility < 0.5f) continue
-
-                val position = handTracker.normalizedToPixel(landmark, imageWidth, imageHeight)
-                val fingerType = mapFingertipToFingerType(landmark, hand.landmarks)
-
-                val tracked = fingerTracker.updateFinger(fingerType, position, landmark.visibility)
-                fingerPositions[fingerType] = tracked
-
-                detectedFingertips.add(
+                val pixels = PointF(landmark.x * width, landmark.y * height)
+                val tracked = tracking.fingers.updateFinger(landmark.finger, pixels, hand.confidence)
+                val imagePosition = PointF(tracked.position.x / width, tracked.position.y / height)
+                fingertips.add(
                     FingertipState(
-                        position = position,
-                        velocity = PointF(tracked.velocity.x, tracked.velocity.y),
+                        position = imagePosition,
+                        velocity = tracked.velocity,
                         acceleration = tracked.acceleration,
                         timestamp = System.currentTimeMillis(),
-                        confidence = landmark.visibility,
-                        handType = handType,
-                        fingerType = fingerType,
+                        confidence = hand.confidence,
+                        handType = side,
+                        fingerType = landmark.finger,
                     )
                 )
 
-                if (tracked.isDown) {
-                    val key = keyPolygonMapper.getKeyPressed(position)
-                    if (key != null) {
-                        pressedKeysAtFrame.add(key.label)
+                if (state.isTypingActive) {
+                    val keyboardPosition = state.currentHomography?.let { project(imagePosition, it) }
+                    if (keyboardPosition != null) {
+                        keyFingers[landmark.finger] = tracked.copy(position = keyboardPosition)
                     }
                 }
             }
-        }
-
-        _state.update { it.copy(detectedFingertips = detectedFingertips.toList()) }
-    }
-
-    private fun processFingerPositions(fingers: Map<FingerType, TrackedFinger>) {
-        val touches = touchDetector.detectTouches(fingers, keyPolygonMapper)
-        for (touch in touches) {
-            val now = System.currentTimeMillis()
-            if (touch.isHighConfidence && now - lastTouchTime > DEBOUNCE_INTERVAL_MS) {
-                sendKeyEvent(touch.keycode, touch.keyLabel)
+            if (state.isTypingActive) {
+                tracking.touches.detectTouches(keyFingers, keyPolygonMapper)
+                    .filter { it.isHighConfidence }
+                    .forEach { sendKeyEvent(it.keycode, it.keyLabel) }
             }
         }
+        _state.update { it.copy(detectedFingertips = fingertips) }
     }
 
-    private fun mapFingertipToFingerType(landmark: Landmark, allLandmarks: List<Landmark>): FingerType {
-        return FingerType.INDEX
-    }
-
-    private fun processGesture(result: GestureResult) {
-        when (result.gesture) {
-            com.visionboard.common.models.GestureType.PINCH -> toggleDeveloperMode()
-            else -> {}
-        }
+    private fun project(point: PointF, matrix: FloatArray): PointF? {
+        val scale = matrix[6] * point.x + matrix[7] * point.y + matrix[8]
+        if (!scale.isFinite() || kotlin.math.abs(scale) < 1e-6f) return null
+        val x = (matrix[0] * point.x + matrix[1] * point.y + matrix[2]) / scale
+        val y = (matrix[3] * point.x + matrix[4] * point.y + matrix[5]) / scale
+        return if (x in 0f..1f && y in 0f..1f) PointF(x, y) else null
     }
 
     private fun updateFpsCounter() {
@@ -560,40 +488,38 @@ class TypingViewModel @Inject constructor(
         }
     }
 
-    private fun calculateFps(): Float {
-        val metrics = performanceMonitor.getMetrics()
-        return metrics.fps
+    private fun resetHands() {
+        for (tracking in handTracking.values) {
+            tracking.fingers.reset()
+            tracking.touches.reset()
+        }
     }
 
+    @Synchronized
     fun resetTracking() {
-        fingerTracker.reset()
-        touchDetector.reset()
-        gestureDetector.reset()
-        fingerPositions.clear()
-        pressedKeysAtFrame.clear()
-        detectedFingertips.clear()
-        homographyValid = false
-        lastTouchTime = 0L
-
+        resetHands()
+        keyboardDetector.reset()
+        fpsCounter = 0
+        lastFpsUpdate = System.currentTimeMillis()
         _state.update {
             it.copy(
+                isTypingActive = false,
                 detectedFingertips = emptyList(),
-                lastKeyPressed = "",
                 detectedCorners = emptyList(),
                 currentHomography = null,
-                statusMessage = "Tracking reset",
+                fps = 0f,
+                latencyMs = 0f,
             )
         }
     }
 
+    @Synchronized
     override fun onCleared() {
-        super.onCleared()
+        cleared = true
         saveStats()
         bluetoothHidHandler.disconnect()
-        keyboardDetector.reset()
-        fingerTracker.reset()
-        touchDetector.reset()
-        gestureDetector.reset()
-        performanceMonitor.reset()
+        handTracker.close()
+        resetTracking()
+        super.onCleared()
     }
 }
