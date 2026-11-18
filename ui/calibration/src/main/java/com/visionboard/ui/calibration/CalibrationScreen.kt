@@ -216,10 +216,7 @@ private fun CalibrationCameraView(
                     )
                     scaleType = PreviewView.ScaleType.FILL_CENTER
                     implementationMode = PreviewView.ImplementationMode.PERFORMANCE
-                }
-            },
-            onPreview = { previewView ->
-                onCameraReady(previewView)
+                }.also(onCameraReady)
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -314,10 +311,7 @@ private fun CameraGuideOverlay(
         label = "pulseScale",
     )
 
-    Canvas(
-        modifier = modifier
-            .fillMaxSize()
-            .drawBehind {
+    Canvas(modifier = modifier.fillMaxSize()) {
                 drawRect(color = Color.Black.copy(alpha = guideAlpha * 0.6f))
 
                 val centerX = size.width / 2f
@@ -364,8 +358,7 @@ private fun CameraGuideOverlay(
                     radius = cornerRadius,
                     center = Offset(left + guideWidth, centerY),
                 )
-            },
-    )
+    }
 }
 
 @Composable

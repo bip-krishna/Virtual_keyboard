@@ -7,8 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -19,7 +17,6 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.visionboard.bluetooth.handler.BluetoothHidHandler
 import com.visionboard.bluetooth.handler.ConnectionState
-import com.visionboard.bluetooth.hid.HidReportDescriptor
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +34,6 @@ import javax.inject.Inject
 class BluetoothHidService : Service() {
 
     @Inject lateinit var hidHandler: BluetoothHidHandler
-    @Inject lateinit var reportDescriptor: HidReportDescriptor
     @Inject lateinit var keyTranslator: com.visionboard.bluetooth.hid.HidKeyTranslator
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -48,31 +44,8 @@ class BluetoothHidService : Service() {
         BluetoothHidBinder(this, hidHandler, keyTranslator)
     }
 
-    private val bluetoothManager: BluetoothManager? by lazy {
-        getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-    }
-
-    private val bluetoothAdapter: BluetoothAdapter? by lazy {
-        bluetoothManager?.adapter
-    }
-
-    private var hidDevice: Any? = null
-    private var hidHostProxy: BluetoothProfile? = null
-
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
-
-    private val hidServiceListener = object : BluetoothProfile.ServiceListener {
-        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
-            Log.d(TAG, "Bluetooth HID Host profile connected")
-            hidHostProxy = proxy
-        }
-
-        override fun onServiceDisconnected(profile: Int) {
-            Log.d(TAG, "Bluetooth HID Host profile disconnected")
-            hidHostProxy = null
-        }
-    }
 
     private val bluetoothReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -110,7 +83,7 @@ class BluetoothHidService : Service() {
                             _isRunning.value = false
                         }
                         BluetoothAdapter.STATE_ON -> {
-                            initializeHidDevice()
+                            startConnection()
                         }
                     }
                 }
@@ -122,21 +95,14 @@ class BluetoothHidService : Service() {
         super.onCreate()
         createNotificationChannel()
         registerBluetoothReceiver()
-        connectHidHostProfile()
-        initializeHidDevice()
     }
 
     override fun onBind(intent: Intent): IBinder = binder
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> {
-                performStop()
-                return START_NOT_STICKY
-            }
-            ACTION_CONNECT -> {
-                startConnection()
-            }
+        if (intent?.action == ACTION_STOP) {
+            performStop()
+            return START_NOT_STICKY
         }
 
         if (!isServiceRunning) {
@@ -144,7 +110,7 @@ class BluetoothHidService : Service() {
             isServiceRunning = true
             _isRunning.value = true
         }
-
+        if (intent?.action == ACTION_CONNECT) startConnection()
         return START_STICKY
     }
 
@@ -176,9 +142,7 @@ class BluetoothHidService : Service() {
         reconnectJob?.cancel()
         scope.launch {
             hidHandler.disconnect()
-            unregisterSdpRecord()
             unregisterBluetoothReceiver()
-            disconnectHidHostProfile()
         }
         isServiceRunning = false
         _isRunning.value = false
@@ -192,7 +156,7 @@ class BluetoothHidService : Service() {
         }
         scope.launch {
             hidHandler.connect().collect { state ->
-                updateNotification(state)
+                updateNotification(state.name.lowercase().replace('_', ' '))
                 when (state) {
                     ConnectionState.CONNECTED -> {
                         reconnectJob?.cancel()
@@ -228,145 +192,6 @@ class BluetoothHidService : Service() {
             Log.w(TAG, "Failed to reconnect after $MAX_RECONNECT_ATTEMPTS attempts")
             updateNotification("Connection lost")
         }
-    }
-
-    private fun initializeHidDevice() {
-        try {
-            val adapter = bluetoothAdapter ?: run {
-                Log.e(TAG, "BluetoothAdapter not available")
-                return
-            }
-
-            val getHidDeviceMethod = try {
-                adapter.javaClass.getMethod("getHidDevice")
-            } catch (e: NoSuchMethodException) {
-                Log.e(TAG, "getHidDevice not found — hidden API unavailable", e)
-                trySystemServiceHidDevice()
-                return
-            }
-
-            hidDevice = getHidDeviceMethod.invoke(adapter)
-            if (hidDevice == null) {
-                Log.w(TAG, "BluetoothHidDevice returned null, trying system service")
-                trySystemServiceHidDevice()
-                return
-            }
-
-            registerSdpRecordViaReflection()
-            Log.d(TAG, "BluetoothHidDevice initialized and SDP record registered")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to initialize HID device", e)
-            trySystemServiceHidDevice()
-        }
-    }
-
-    private fun trySystemServiceHidDevice() {
-        try {
-            val smClass = Class.forName("android.os.ServiceManager")
-            val getService = smClass.getMethod("getService", String::class.java)
-            val binder = getService.invoke(null, "bluetooth_manager") as? IBinder
-                ?: return Log.w(TAG, "bluetooth_manager binder not found")
-
-            val stubClass = Class.forName("android.bluetooth.IBluetoothManager\$Stub")
-            val asInterface = stubClass.getMethod("asInterface", IBinder::class.java)
-            val btManager = asInterface.invoke(null, binder)
-
-            val method = btManager.javaClass.getMethod("getHidDevice")
-            hidDevice = method.invoke(btManager)
-            Log.d(TAG, "Obtained HID device via system service: ${hidDevice != null}")
-
-            if (hidDevice != null) {
-                registerSdpRecordViaReflection()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "System service HID fallback failed", e)
-        }
-    }
-
-    private fun registerSdpRecordViaReflection() {
-        val device = hidDevice ?: return
-        val descriptor = reportDescriptor.buildKeyboardDescriptor()
-
-        try {
-            val registerMethod = device.javaClass.getMethod(
-                "registerApp",
-                String::class.java,
-                String::class.java,
-                String::class.java,
-                ByteArray::class.java,
-                BluetoothProfile.ServiceListener::class.java,
-            )
-            registerMethod.invoke(
-                device,
-                SDP_DEVICE_NAME,
-                SDP_DESCRIPTION,
-                SDP_PROVIDER,
-                descriptor,
-                hidServiceListener,
-            )
-            Log.d(TAG, "HID app registered via registerApp")
-        } catch (e: NoSuchMethodException) {
-            Log.w(TAG, "registerApp not found, trying alternative registration")
-            registerSdpAlternative()
-        } catch (e: Exception) {
-            Log.e(TAG, "SDP registration failed", e)
-            registerSdpAlternative()
-        }
-    }
-
-    private fun registerSdpAlternative() {
-        val device = hidDevice ?: return
-        val descriptor = reportDescriptor.buildKeyboardDescriptor()
-
-        try {
-            val connectInputHost = device.javaClass.getMethod(
-                "connectInputHost",
-                BluetoothProfile.ServiceListener::class.java,
-            )
-            connectInputHost.invoke(device, hidServiceListener)
-            Log.d(TAG, "Registered via connectInputHost")
-        } catch (e: Exception) {
-            Log.w(TAG, "connectInputHost failed: ${e.message}")
-        }
-
-        try {
-            val setDescriptor = device.javaClass.getMethod("setReportDescriptor", ByteArray::class.java)
-            setDescriptor.invoke(device, descriptor)
-            Log.d(TAG, "Set report descriptor via alternative method")
-        } catch (e: Exception) {
-            Log.w(TAG, "setReportDescriptor failed: ${e.message}")
-        }
-    }
-
-    private fun unregisterSdpRecord() {
-        val device = hidDevice ?: return
-        try {
-            val method = device.javaClass.getMethod("unregisterApp")
-            method.invoke(device)
-            Log.d(TAG, "HID app unregistered")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to unregister HID app", e)
-        }
-    }
-
-    private fun connectHidHostProfile() {
-        try {
-            bluetoothAdapter?.getProfileProxy(this, hidServiceListener, BluetoothProfile.HID_HOST)
-            Log.d(TAG, "Requesting HID Host profile proxy")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to connect HID Host profile", e)
-        }
-    }
-
-    private fun disconnectHidHostProfile() {
-        try {
-            hidHostProxy?.let { proxy ->
-                bluetoothAdapter?.closeProfileProxy(BluetoothProfile.HID_HOST, proxy)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to close HID Host profile", e)
-        }
-        hidHostProxy = null
     }
 
     private fun registerBluetoothReceiver() {
@@ -442,9 +267,6 @@ class BluetoothHidService : Service() {
         private const val NOTIFICATION_ID = 2001
         private const val ACTION_STOP = "com.visionboard.bluetooth.ACTION_STOP"
         private const val ACTION_CONNECT = "com.visionboard.bluetooth.ACTION_CONNECT"
-        private const val SDP_DEVICE_NAME = "VisionBoard Keyboard"
-        private const val SDP_DESCRIPTION = "VisionBoard virtual keyboard HID device"
-        private const val SDP_PROVIDER = "com.visionboard"
         private const val MAX_RECONNECT_ATTEMPTS = 10
         private const val RECONNECT_BASE_DELAY_MS = 1000L
         private const val RECONNECT_MAX_DELAY_MS = 30_000L

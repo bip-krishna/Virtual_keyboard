@@ -2,7 +2,7 @@ package com.visionboard.ui.calibration
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowDownwardAlt
+import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.Flare
 import androidx.compose.material.icons.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -59,7 +59,7 @@ sealed class CalibrationGuideStep(
         totalSteps = 5,
         instruction = "Tilt slightly forward and capture",
         subtitle = "Tilt the top of the phone toward the keyboard",
-        icon = Icons.Filled.ArrowDownwardAlt,
+        icon = Icons.Filled.ArrowDownward,
         angleHint = "\u2248 10\u00b0\u201315\u00b0 forward",
     )
 

@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -157,9 +158,9 @@ private fun DrawScope.drawKeyPolygon(
         val glowPaint = android.graphics.Paint().apply {
             color = android.graphics.Color.argb(80, 66, 165, 245)
             style = android.graphics.Paint.Style.FILL
-            maskFilter = android.graphics.MaskFilter.blur(12f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+            maskFilter = android.graphics.BlurMaskFilter(12f, android.graphics.BlurMaskFilter.Blur.NORMAL)
         }
-        drawContext.canvas.nativeCanvas.drawPath(path, glowPaint)
+        drawContext.canvas.nativeCanvas.drawPath(path.asAndroidPath(), glowPaint)
     }
 }
 

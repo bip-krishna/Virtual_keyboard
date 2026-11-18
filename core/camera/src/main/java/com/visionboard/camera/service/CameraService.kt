@@ -18,6 +18,8 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.concurrent.futures.await
+import androidx.lifecycle.LifecycleService
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleRegistry
@@ -36,7 +38,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.tasks.await
 import java.io.ByteArrayOutputStream
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -201,14 +202,14 @@ class CameraService : LifecycleService(), CameraServiceImpl {
         camera?.let { cam ->
             _currentZoom.value = cam.cameraInfo.zoomState.value?.zoomRatio ?: 1f
             _isTorchEnabled.value =
-                cam.cameraInfo.torchState.value == androidx.camera.core.CameraState.TORCH_STATE_ON
+                cam.cameraInfo.torchState.value == androidx.camera.core.TorchState.ON
 
             cam.cameraInfo.zoomState.observe(this@CameraService) { zoomState ->
                 _currentZoom.value = zoomState.zoomRatio
             }
             cam.cameraInfo.torchState.observe(this@CameraService) { torchState ->
                 _isTorchEnabled.value =
-                    torchState == androidx.camera.core.CameraState.TORCH_STATE_ON
+                    torchState == androidx.camera.core.TorchState.ON
             }
 
             cam.cameraControl.enableTorch(currentConfig.useHighSpeed)

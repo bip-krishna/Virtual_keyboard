@@ -1,6 +1,6 @@
 package com.visionboard.camera.processor
 
-import android.media.ImageProxy
+import androidx.camera.core.ImageProxy
 import org.opencv.core.Mat
 
 data class FrameProcessingResult(

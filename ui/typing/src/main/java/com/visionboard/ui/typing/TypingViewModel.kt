@@ -267,7 +267,7 @@ class TypingViewModel @Inject constructor(
 
     private fun updateWpm() {
         val now = System.currentTimeMillis()
-        val elapsedSec = (now - sessionStartTime) / 1000.0
+        val elapsedSec = (now - sessionStartTime) / 1000f
         if (elapsedSec <= 0) return
 
         val wpm = (accumulativePresses / 5.0f / (elapsedSec / 60.0f)).coerceAtLeast(0f)

@@ -40,7 +40,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.CameraOff
+import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
@@ -345,7 +345,7 @@ fun TypingScreen(
             shape = CircleShape,
         ) {
             Icon(
-                imageVector = if (state.cameraActive) Icons.Default.CameraAlt else Icons.Default.CameraOff,
+                imageVector = if (state.cameraActive) Icons.Default.CameraAlt else Icons.Default.VideocamOff,
                 contentDescription = "Toggle Camera",
                 tint = Color.White,
                 modifier = Modifier.size(24.dp),

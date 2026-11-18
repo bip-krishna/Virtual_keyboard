@@ -38,8 +38,8 @@ class HidKeyTranslator @Inject constructor() {
         ' ' to KeyEvent.KEYCODE_SPACE, '\t' to KeyEvent.KEYCODE_TAB,
         '\n' to KeyEvent.KEYCODE_ENTER, '\r' to KeyEvent.KEYCODE_ENTER,
         '.' to KeyEvent.KEYCODE_PERIOD, ',' to KeyEvent.KEYCODE_COMMA,
-        ';' to KeyEvent.KEYCODE_SEMICOLON, ':' to KeyEvent.KEYCODE_COLON,
-        '!' to KeyEvent.KEYCODE_EXCLAMATION, '?' to KeyEvent.KEYCODE_QUESTION_MARK,
+        ';' to KeyEvent.KEYCODE_SEMICOLON, ':' to KeyEvent.KEYCODE_SEMICOLON,
+        '!' to KeyEvent.KEYCODE_1, '?' to KeyEvent.KEYCODE_SLASH,
         '\'' to KeyEvent.KEYCODE_APOSTROPHE, '"' to KeyEvent.KEYCODE_APOSTROPHE,
         '-' to KeyEvent.KEYCODE_MINUS, '_' to KeyEvent.KEYCODE_MINUS,
         '+' to KeyEvent.KEYCODE_EQUALS, '=' to KeyEvent.KEYCODE_EQUALS,
@@ -48,8 +48,8 @@ class HidKeyTranslator @Inject constructor() {
         '[' to KeyEvent.KEYCODE_LEFT_BRACKET, ']' to KeyEvent.KEYCODE_RIGHT_BRACKET,
         '{' to KeyEvent.KEYCODE_LEFT_BRACKET, '}' to KeyEvent.KEYCODE_RIGHT_BRACKET,
         '@' to KeyEvent.KEYCODE_AT, '#' to KeyEvent.KEYCODE_POUND,
-        '$' to KeyEvent.KEYCODE_DOLLAR, '%' to KeyEvent.KEYCODE_PERCENT,
-        '^' to KeyEvent.KEYCODE_STAR, '&' to KeyEvent.KEYCODE_AMPERSAND,
+        '$' to KeyEvent.KEYCODE_4, '%' to KeyEvent.KEYCODE_5,
+        '^' to KeyEvent.KEYCODE_STAR, '&' to KeyEvent.KEYCODE_7,
         '*' to KeyEvent.KEYCODE_STAR, '~' to KeyEvent.KEYCODE_GRAVE,
         '`' to KeyEvent.KEYCODE_GRAVE, '<' to KeyEvent.KEYCODE_COMMA,
         '>' to KeyEvent.KEYCODE_PERIOD, '|' to KeyEvent.KEYCODE_BACKSLASH,
@@ -149,7 +149,7 @@ class HidKeyTranslator @Inject constructor() {
         put(KeyEvent.KEYCODE_INSERT, HID_USAGE_INSERT)
         put(KeyEvent.KEYCODE_SYSRQ, HID_USAGE_PRINT_SCREEN)
         put(KeyEvent.KEYCODE_SCROLL_LOCK, HID_USAGE_SCROLL_LOCK)
-        put(KeyEvent.KEYCODE_PAUSE, HID_USAGE_PAUSE)
+        put(KeyEvent.KEYCODE_BREAK, HID_USAGE_PAUSE)
         put(KeyEvent.KEYCODE_NUM_LOCK, HID_USAGE_NUM_LOCK)
     }
 

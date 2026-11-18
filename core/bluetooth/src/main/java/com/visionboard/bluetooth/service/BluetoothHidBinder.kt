@@ -68,7 +68,7 @@ class BluetoothHidBinder internal constructor(
     }
 
     fun sendKey(keycode: Int) {
-        if (hidHandler.isModifierKey(keycode)) {
+        if (keyTranslator.isModifierKey(keycode)) {
             handleModifierKey(keycode)
             return
         }
