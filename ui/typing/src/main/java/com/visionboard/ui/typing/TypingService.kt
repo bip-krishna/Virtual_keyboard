@@ -11,8 +11,6 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.visionboard.bluetooth.handler.BluetoothHidHandler
-import com.visionboard.camera.analyzer.KeyboardFrameAnalyzer
-import com.visionboard.camera.service.CameraService
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +20,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -48,13 +45,7 @@ class TypingService : Service() {
     }
 
     @Inject
-    lateinit var cameraService: CameraService
-
-    @Inject
     lateinit var bluetoothHidHandler: BluetoothHidHandler
-
-    @Inject
-    lateinit var frameAnalyzer: KeyboardFrameAnalyzer
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
