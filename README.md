@@ -1,10 +1,8 @@
 # VisionBoard
 
-**Transform your transparent MacBook keyboard cover into a fully functional Bluetooth keyboard using only your Android phone's camera.**
+Use an Android phone’s camera and a transparent keyboard overlay for typing. VisionBoard maps tracked fingertips to calibrated keys and can send keystrokes to a paired device over Bluetooth HID.
 
-VisionBoard uses computer vision, hand tracking, and Bluetooth HID to turn any flat surface with a transparent keyboard cover into a real typing input device. No desktop software required.
-
----
+[How it works](#how-it-works) · [Build the app](#building) · [Requirements](#requirements)
 
 ## Architecture
 
