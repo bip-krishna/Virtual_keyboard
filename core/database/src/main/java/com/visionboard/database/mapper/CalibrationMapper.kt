@@ -52,8 +52,8 @@ fun Mat.toByteArray(): ByteArray {
     val baos = ByteArrayOutputStream()
     val dos = DataOutputStream(baos)
 
-    dos.writeInt(rows)
-    dos.writeInt(cols)
+    dos.writeInt(rows())
+    dos.writeInt(cols())
     dos.writeInt(type())
 
     val totalBytes = total().toInt() * elemSize().toInt()

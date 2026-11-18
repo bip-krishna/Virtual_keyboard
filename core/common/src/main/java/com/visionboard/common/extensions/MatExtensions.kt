@@ -50,14 +50,18 @@ fun Mat.toByteArray(format: String = ".jpg", quality: Int = 90): ByteArray {
         this
     }
     val ext = if (format.startsWith(".")) format else ".$format"
-    val encoded = org.opencv.imgcodecs.Imgcodecs.imencode(ext, mat, org.opencv.core.MatOfInt(
-        org.opencv.imgcodecs.Imgcodecs.IMWRITE_JPEG_QUALITY, quality
-    ))
-    if (mat !== this) mat.release()
-    val result = ByteArray(encoded.second.total().toInt())
-    encoded.first.get(0, 0, result)
-    encoded.first.release()
-    return result
+    val encoded = org.opencv.core.MatOfByte()
+    val options = org.opencv.core.MatOfInt(org.opencv.imgcodecs.Imgcodecs.IMWRITE_JPEG_QUALITY, quality)
+    return try {
+        check(org.opencv.imgcodecs.Imgcodecs.imencode(ext, mat, encoded, options)) {
+            "Could not encode image as $ext"
+        }
+        encoded.toArray()
+    } finally {
+        options.release()
+        encoded.release()
+        if (mat !== this) mat.release()
+    }
 }
 
 // ── Transform ─────────────────────────────────────────────────────────────────
@@ -275,7 +279,12 @@ fun Mat.findLargestQuadrilateral(): List<PointF>? {
 }
 
 fun Mat.toPoint2fArray(): Array<Point> {
-    return this.toArray().map { Point(it.x, it.y) }.toTypedArray()
+    val points = MatOfPoint2f(this)
+    return try {
+        points.toArray()
+    } finally {
+        points.release()
+    }
 }
 
 // ── Companion utilities ───────────────────────────────────────────────────────
@@ -287,7 +296,7 @@ object MatUtils {
         return mat
     }
 
-    fun fromPoints(points: List<PointF>): MatOfPoint {
+    fun fromIntegerPoints(points: List<PointF>): MatOfPoint {
         val mat = MatOfPoint()
         mat.fromList(points.map { org.opencv.core.Point(it.x.toDouble(), it.y.toDouble()) })
         return mat

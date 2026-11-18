@@ -392,7 +392,7 @@ class OverlayRenderer @Inject constructor() {
         private const val COLOR_GRID = 0x40FFCC00.toInt()
 
         private const val COLOR_FPS_TEXT = 0xFF00FF00.toInt()
-        private const val COLOR_FPS_BACKGROUND = 0xB0000000
+        private const val COLOR_FPS_BACKGROUND = 0xB0000000.toInt()
 
         private const val OUTLINE_STROKE_WIDTH = 4f
         private const val KEY_OUTLINE_STROKE_WIDTH = 1.5f

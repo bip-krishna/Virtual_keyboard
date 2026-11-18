@@ -161,14 +161,13 @@ class TouchDetector @Inject constructor() {
 
         val velocityScore = computeVelocityScore(finger)
         val accelerationScore = computeAccelerationScore(finger)
-        val positionScore = if (isInsideKey) POSITION_BONUS else 0f
         val historyScore = computeMotionHistoryScore(state)
         val dwellScore = computeDwellScore(state)
 
         val weightedScore = contactProbability * PROBABILITY_WEIGHT +
             velocityScore * VELOCITY_WEIGHT +
             accelerationScore * ACCELERATION_WEIGHT +
-            positionScore * POSITION_WEIGHT +
+            POSITION_WEIGHT +
             historyScore * HISTORY_WEIGHT +
             dwellScore * DWELL_WEIGHT
 

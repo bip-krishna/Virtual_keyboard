@@ -258,8 +258,8 @@ class PerformanceMonitor private constructor() {
     }
 
     companion object {
-        val instance: PerformanceMonitor by lazy { PerformanceMonitor() }
+        private val singletonInstance: PerformanceMonitor by lazy { PerformanceMonitor() }
 
-        fun getInstance(): PerformanceMonitor = instance
+        fun getInstance(): PerformanceMonitor = singletonInstance
     }
 }

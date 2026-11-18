@@ -20,6 +20,8 @@ import javax.inject.Singleton
 import kotlin.math.abs
 import kotlin.math.sqrt
 
+private const val MIN_VALID_INLIER_RATIO = 0.3f
+
 data class HomographyResult(
     val matrix: Mat?,
     val inlierCount: Int,
@@ -60,7 +62,7 @@ class HomographyEngine @Inject constructor() {
 
     private val orb = ORB.create(MAX_ORB_FEATURES)
     private val bfMatcher = org.opencv.features2d.BFMatcher(
-        org.opencv.features2d.NORM_HAMMING,
+        org.opencv.core.Core.NORM_HAMMING,
         false
     )
 
@@ -299,7 +301,7 @@ class HomographyEngine @Inject constructor() {
     }
 
     fun release() {
-        orb.release()
+        orb.clear()
         bfMatcher.clear()
     }
 
@@ -311,6 +313,5 @@ class HomographyEngine @Inject constructor() {
         private const val MAX_HOMOGRAPHY_ITERATIONS = 2000
         private const val CONFIDENCE = 0.995
         private const val MIN_POINTS = 4
-        private const val MIN_VALID_INLIER_RATIO = 0.3f
     }
 }

@@ -1,6 +1,7 @@
 package com.visionboard.geometry.calibration
 
 import android.graphics.PointF
+import com.visionboard.geometry.homography.HomographyEngine
 import org.opencv.calib3d.Calib3d
 import org.opencv.core.Core
 import org.opencv.core.CvType
@@ -15,6 +16,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.abs
 import kotlin.math.sqrt
+
+private const val MIN_FEATURES = 8
+private const val MIN_CONFIDENCE = 0.5f
 
 data class CalibrationInput(
     val referenceCorners: List<PointF>,
@@ -352,8 +356,6 @@ class CalibrationEngine @Inject constructor() {
         private const val RANSAC_THRESHOLD = 5.0
         private const val MAX_ITERATIONS = 2000
         private const val CONFIDENCE_LEVEL = 0.995
-        private const val MIN_FEATURES = 8
         private const val MAX_FEATURES = 100
-        private const val MIN_CONFIDENCE = 0.5f
     }
 }

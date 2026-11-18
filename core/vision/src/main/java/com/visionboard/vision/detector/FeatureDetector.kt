@@ -21,7 +21,7 @@ class FeatureDetector @Inject constructor() {
     private val orb: ORB = ORB.create(MAX_FEATURES)
 
     private val bfMatcher = org.opencv.features2d.BFMatcher(
-        org.opencv.features2d.NORM_HAMMING,
+        org.opencv.core.Core.NORM_HAMMING,
         false
     )
 
@@ -187,7 +187,7 @@ class FeatureDetector @Inject constructor() {
     }
 
     fun release() {
-        orb.release()
+        orb.clear()
         bfMatcher.clear()
     }
 

@@ -1,7 +1,6 @@
 package com.visionboard.tracking.kalman
 
 import android.graphics.PointF
-import com.visionboard.common.constants.AppConstants.Kalman.DEFAULT_DELTA_TIME
 import com.visionboard.common.constants.AppConstants.Kalman.MEASUREMENT_DIMENSION
 import com.visionboard.common.constants.AppConstants.Kalman.MEASUREMENT_NOISE
 import com.visionboard.common.constants.AppConstants.Kalman.MIN_CONFIDENCE_FOR_UPDATE

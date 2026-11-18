@@ -315,7 +315,7 @@ class GestureDetector @Inject constructor() {
 
         val wasMovingDown = previous.velocity.y > TAP_DOWN_VELOCITY_THRESHOLD
         val isSlowingDown = current.velocity.y < previous.velocity.y * 0.5f
-        val smallDisplacement = abs(current.position.y - history.first().fingers[finger.type]?.position?.y ?: current.position.y) < TAP_MAX_DISPLACEMENT
+        val smallDisplacement = abs(current.position.y - (history.first().fingers[finger.type]?.position?.y ?: current.position.y)) < TAP_MAX_DISPLACEMENT
 
         return wasMovingDown && isSlowingDown && smallDisplacement
     }

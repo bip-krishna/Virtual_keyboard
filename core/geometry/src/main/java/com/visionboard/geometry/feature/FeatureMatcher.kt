@@ -14,6 +14,9 @@ import org.opencv.features2d.ORB
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val MIN_VALID_MATCHES = 4
+private const val MIN_VALID_CONFIDENCE = 0.3f
+
 data class MatchResult(
     val matchCount: Int,
     val goodMatchCount: Int,
@@ -39,7 +42,7 @@ class FeatureMatcher @Inject constructor() {
 
     private val orb = ORB.create(MAX_FEATURES)
     private val bfMatcher = org.opencv.features2d.BFMatcher(
-        org.opencv.features2d.NORM_HAMMING,
+        org.opencv.core.Core.NORM_HAMMING,
         false
     )
 
@@ -190,7 +193,7 @@ class FeatureMatcher @Inject constructor() {
             val dstPt = baseResult.destinationKeypoints[match.trainIdx].pt
 
             val transformedSrc = transformPoint(
-                PointF(srcPt.x, srcPt.y),
+                PointF(srcPt.x.toFloat(), srcPt.y.toFloat()),
                 previousHomography
             )
 
@@ -285,7 +288,7 @@ class FeatureMatcher @Inject constructor() {
     }
 
     fun release() {
-        orb.release()
+        orb.clear()
         bfMatcher.clear()
     }
 
@@ -293,8 +296,6 @@ class FeatureMatcher @Inject constructor() {
         private const val MAX_FEATURES = 1000
         private const val LOWE_RATIO = 0.75f
         private const val MIN_MATCH_COUNT = 10
-        private const val MIN_VALID_MATCHES = 4
-        private const val MIN_VALID_CONFIDENCE = 0.3f
         private const val RANSAC_THRESHOLD = 5.0
         private const val MAX_HOMOGRAPHY_ITERATIONS = 2000
         private const val HOMOGRAPHY_CONFIDENCE = 0.995

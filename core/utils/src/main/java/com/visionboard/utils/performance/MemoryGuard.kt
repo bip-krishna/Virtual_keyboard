@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
@@ -49,7 +50,7 @@ class MemoryGuard @Inject constructor(
     fun startMonitoring(intervalMs: Long = 5000L): Flow<MemoryState> = flow {
         isMonitoring.set(true)
 
-        while (isActive) {
+        while (isMonitoring.get() && currentCoroutineContext().isActive) {
             val state = getMemoryState()
             _memoryState.value = state
 

@@ -275,13 +275,13 @@ class WebSocketServerImpl {
             var payloadLength = (secondByte and 0x7F).toLong()
 
             when (payloadLength) {
-                126 -> {
+                126L -> {
                     val b1 = input.read()
                     val b2 = input.read()
                     if (b1 == -1 || b2 == -1) return@withContext null
                     payloadLength = ((b1 shl 8) or b2).toLong()
                 }
-                127 -> {
+                127L -> {
                     val sizeBytes = ByteArray(8)
                     var bytesRead = 0
                     while (bytesRead < 8) {

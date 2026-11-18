@@ -10,6 +10,8 @@ import org.opencv.core.Size
 import org.opencv.imgproc.Imgproc
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.abs
+import kotlin.math.sqrt
 
 data class Quadrilateral(
     val topLeft: PointF,

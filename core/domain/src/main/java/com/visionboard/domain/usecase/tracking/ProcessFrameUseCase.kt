@@ -31,7 +31,7 @@ class ProcessFrameUseCase @Inject constructor(
         val processedFrame = preprocessFrame(frame)
         val detectedCorners = detectKeyboard(processedFrame)
         val updatedHomography = if (detectedCorners != null && currentHomography == null) {
-            computeHomography(detectedCorners)
+            computeHomography(detectedCorners, processedFrame)
         } else {
             currentHomography
         }
@@ -74,7 +74,7 @@ class ProcessFrameUseCase @Inject constructor(
         return null
     }
 
-    private fun computeHomography(corners: List<android.graphics.PointF>): Mat? {
+    private fun computeHomography(corners: List<android.graphics.PointF>, frame: Mat): Mat? {
         if (corners.size != 4) return null
         val srcPoints = org.opencv.core.MatOfPoint2f(
             org.opencv.core.Point(corners[0].x.toDouble(), corners[0].y.toDouble()),
@@ -88,7 +88,7 @@ class ProcessFrameUseCase @Inject constructor(
             org.opencv.core.Point(frame.cols().toDouble(), frame.rows().toDouble()),
             org.opencv.core.Point(0.0, frame.rows().toDouble()),
         )
-        val homography = org.opencv.core.Homography(srcPoints, dstPoints, org.opencv.core.RANSAC, 5.0)
+        val homography = org.opencv.calib3d.Calib3d.findHomography(srcPoints, dstPoints)
         srcPoints.release()
         dstPoints.release()
         return homography

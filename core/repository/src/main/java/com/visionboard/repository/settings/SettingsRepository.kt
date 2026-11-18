@@ -3,6 +3,7 @@ package com.visionboard.repository.settings
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -30,7 +31,7 @@ class SettingsRepository @Inject constructor(
 
     override fun getSettings(): Flow<AppSettingsDomain> {
         return dataStore.data
-            .catch { emit(Preferences.EMPTY) }
+            .catch { emit(emptyPreferences()) }
             .map { prefs ->
                 AppSettingsDomain(
                     sensitivity = prefs[KEY_SENSITIVITY] ?: DEFAULT_SENSITIVITY,
@@ -79,7 +80,7 @@ class SettingsRepository @Inject constructor(
 
     fun <T> getSpecificSetting(key: Preferences.Key<T>): Flow<T?> {
         return dataStore.data
-            .catch { emit(Preferences.EMPTY) }
+            .catch { emit(emptyPreferences()) }
             .map { prefs -> prefs[key] }
     }
 
