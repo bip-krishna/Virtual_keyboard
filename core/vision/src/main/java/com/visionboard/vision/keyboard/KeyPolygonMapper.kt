@@ -8,7 +8,7 @@ import javax.inject.Singleton
 @Singleton
 class KeyPolygonMapper @Inject constructor() {
 
-    private val keyLayout: Map<String, KeyData> = KeyboardLayouts.usQwerty()
+    private val keyLayout: Map<String, KeyData> = KeyboardLayouts.macBookAnsi()
 
     fun getKeyPressed(fingertipPosition: PointF): KeyData? {
         for ((_, keyData) in keyLayout) {

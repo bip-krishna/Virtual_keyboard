@@ -17,6 +17,9 @@ android {
         versionCode = 1
         versionName = "1.0.0"
 
+        // Ship only ABIs carried by both the OpenCV and MediaPipe AARs.
+        ndk.abiFilters += setOf("arm64-v8a", "armeabi-v7a", "x86")
+
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -20,7 +20,6 @@ import com.visionboard.vision.detector.KeyboardDetector
 import com.visionboard.vision.hand.HandTracker
 import com.visionboard.vision.keyboard.KeyPolygonMapper
 import com.visionboard.vision.model.HandLandmarkResult
-import com.visionboard.vision.model.KeyboardDetectionResult
 import com.visionboard.vision.model.HandType as VisionHandType
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -88,6 +87,7 @@ class TypingViewModel @Inject constructor(
     private val handTracking = listOf(CommonHandType.LEFT, CommonHandType.RIGHT)
         .associateWith { HandTracking(FingerTracker(), TouchDetector()) }
     private var cleared = false
+    private var manualCalibration = false
 
     private var lastTouchTime = 0L
     private var lastWpmTime = 0L
@@ -362,7 +362,10 @@ class TypingViewModel @Inject constructor(
             }
 
             val hands = handTracker.detectHand(bitmap)
-            if (!_state.value.isTypingActive) updateKeyboard(bitmap)
+            val state = _state.value
+            if (!state.isTypingActive && !state.selectingCorners && !manualCalibration) {
+                updateKeyboard(bitmap)
+            }
             updateHands(hands, width, height)
             updateFpsCounter()
 
@@ -384,7 +387,9 @@ class TypingViewModel @Inject constructor(
             Imgproc.cvtColor(rgba, gray, Imgproc.COLOR_RGBA2GRAY)
             val detection = keyboardDetector.detectKeyboard(gray, rgba)
             if (detection.detected && detection.corners.size == 4) {
-                onKeyboardDetectionSuccess(detection)
+                val state = _state.value
+                val corners = detection.corners.map { PointF(it.x / state.frameWidth, it.y / state.frameHeight) }
+                applyKeyboardCorners(corners)
             } else {
                 _state.update {
                     it.copy(detectedCorners = emptyList(), currentHomography = null,
@@ -397,15 +402,46 @@ class TypingViewModel @Inject constructor(
         }
     }
 
-    private fun onKeyboardDetectionSuccess(result: KeyboardDetectionResult) {
-        val state = _state.value
-        val corners = result.corners.map {
-            PointF(it.x / state.frameWidth, it.y / state.frameHeight)
+    @Synchronized
+    fun beginManualCalibration() {
+        resetTracking()
+        _state.update {
+            it.copy(selectingCorners = true, statusMessage = "Tap top-left, top-right, bottom-right, bottom-left")
         }
+    }
+
+    @Synchronized
+    fun addCalibrationCorner(x: Float, y: Float) {
+        val state = _state.value
+        if (!state.selectingCorners || x !in 0f..1f || y !in 0f..1f) return
+        val corners = state.selectedCorners + PointF(x, y)
+        if (corners.size < 4) {
+            _state.update { it.copy(selectedCorners = corners) }
+            return
+        }
+
+        // A clockwise convex quadrilateral in camera coordinates has four positive turns.
+        val valid = corners.indices.all { index ->
+            val a = corners[index]
+            val b = corners[(index + 1) % 4]
+            val c = corners[(index + 2) % 4]
+            (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x) > 0.001f
+        }
+        if (valid && applyKeyboardCorners(corners)) {
+            manualCalibration = true
+            _state.update { it.copy(selectingCorners = false, selectedCorners = emptyList()) }
+        } else {
+            _state.update {
+                it.copy(selectedCorners = emptyList(), statusMessage = "Try again, starting at the top-left corner")
+            }
+        }
+    }
+
+    private fun applyKeyboardCorners(corners: List<PointF>): Boolean {
         val layoutCorners = listOf(PointF(0f, 0f), PointF(1f, 0f), PointF(1f, 1f), PointF(0f, 1f))
         val homography = homographyEngine.computeHomography(corners, layoutCorners)
         try {
-            val matrix = homography.matrix?.takeIf { homography.isValid } ?: return
+            val matrix = homography.matrix?.takeIf { homography.isValid } ?: return false
             val values = DoubleArray(9)
             matrix.get(0, 0, values)
             _state.update {
@@ -415,6 +451,7 @@ class TypingViewModel @Inject constructor(
                     statusMessage = "Keyboard detected. Keep the phone steady.",
                 )
             }
+            return true
         } finally {
             homography.release()
         }
@@ -458,7 +495,6 @@ class TypingViewModel @Inject constructor(
             }
             if (state.isTypingActive) {
                 tracking.touches.detectTouches(keyFingers, keyPolygonMapper)
-                    .filter { it.isHighConfidence }
                     .forEach { sendKeyEvent(it.keycode, it.keyLabel) }
             }
         }
@@ -497,6 +533,7 @@ class TypingViewModel @Inject constructor(
     @Synchronized
     fun resetTracking() {
         resetHands()
+        manualCalibration = false
         keyboardDetector.reset()
         fpsCounter = 0
         lastFpsUpdate = System.currentTimeMillis()
@@ -505,6 +542,8 @@ class TypingViewModel @Inject constructor(
                 isTypingActive = false,
                 detectedFingertips = emptyList(),
                 detectedCorners = emptyList(),
+                selectingCorners = false,
+                selectedCorners = emptyList(),
                 currentHomography = null,
                 fps = 0f,
                 latencyMs = 0f,

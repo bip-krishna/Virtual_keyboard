@@ -434,7 +434,7 @@ class TouchDetector @Inject constructor() {
 
         const val MIN_FRAMES_BEFORE_TOUCH = 3
         const val MIN_CONFIDENCE = 0.3f
-        const val KEY_PROXIMITY_RADIUS = 50f
+        const val KEY_PROXIMITY_RADIUS = 0.1f
 
         const val UPWARD_VELOCITY_THRESHOLD = 100f
         const val FAST_MOVEMENT_THRESHOLD = 200f

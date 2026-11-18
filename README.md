@@ -59,7 +59,7 @@ VisionBoard uses computer vision, hand tracking, and Bluetooth HID to turn any f
 | Geometry | Custom homography, perspective transforms |
 | Storage | Room + DataStore |
 | Concurrency | Coroutines + Flow |
-| Bluetooth | HID Device Profile (hidden API) |
+| Bluetooth | Android Bluetooth HID Device API |
 | Network | WebSocket (TCP) |
 
 ## Modules
@@ -157,6 +157,13 @@ The app does NOT simply check if a fingertip is inside a key polygon. It uses a 
 ## Hand tracking model
 
 The app uses Google's [MediaPipe Hand Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker). Gradle downloads the official float16 v1 task bundle, verifies its SHA-256, and packages it in the APK. Inference runs on the phone and works offline after installation.
+
+### Try live tracking
+
+1. Open VisionBoard, grant camera access, and reach the typing screen. You can skip the guided capture to test live tracking.
+2. Point the rear camera at your hands. Fingertip dots should follow your fingers even before you start a typing session.
+3. Place an ANSI MacBook keyboard cover on a flat surface and keep the phone fixed. If the automatic outline misses it, tap **Set corners** and select top-left, top-right, bottom-right, and bottom-left.
+4. Tap **Start typing**. The app shows the last recognized key. For Bluetooth output, tap the Bluetooth icon, allow visibility, then add VisionBoard from the host computer's Bluetooth settings while the app stays open.
 
 ## Building
 

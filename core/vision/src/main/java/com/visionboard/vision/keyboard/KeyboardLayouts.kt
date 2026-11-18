@@ -6,6 +6,45 @@ import com.visionboard.vision.model.KeyData
 
 object KeyboardLayouts {
 
+    private data class Key(val label: String, val androidName: String = label, val width: Float = 1f)
+
+    fun macBookAnsi(): Map<String, KeyData> {
+        fun letters(labels: String) = labels.map { Key(it.toString()) }
+        val rows = listOf(
+            listOf(Key("ESC", "ESCAPE", 1.5f)) + (1..12).map { Key("F$it") },
+            listOf(Key("`", "GRAVE")) + letters("1234567890") +
+                listOf(Key("-", "MINUS"), Key("=", "EQUALS"), Key("DELETE", "DEL", 2f)),
+            listOf(Key("TAB", width = 1.5f)) + letters("QWERTYUIOP") +
+                listOf(Key("[", "LEFT_BRACKET"), Key("]", "RIGHT_BRACKET"), Key("BACKSLASH", width = 1.5f)),
+            listOf(Key("CAPS LOCK", "CAPS_LOCK", 1.75f)) + letters("ASDFGHJKL") +
+                listOf(Key(";", "SEMICOLON"), Key("'", "APOSTROPHE"), Key("RETURN", "ENTER", 2.25f)),
+            listOf(Key("SHIFT LEFT", "SHIFT_LEFT", 2.25f)) + letters("ZXCVBNM") +
+                listOf(Key(",", "COMMA"), Key(".", "PERIOD"), Key("/", "SLASH"), Key("SHIFT RIGHT", "SHIFT_RIGHT", 2.75f)),
+            listOf(
+                Key("FN", "FUNCTION"), Key("CONTROL", "CTRL_LEFT"), Key("OPTION LEFT", "ALT_LEFT"),
+                Key("COMMAND LEFT", "META_LEFT", 1.25f), Key("SPACE", width = 5.75f),
+                Key("COMMAND RIGHT", "META_RIGHT", 1.25f), Key("OPTION RIGHT", "ALT_RIGHT"),
+                Key("LEFT", "DPAD_LEFT"), Key("DOWN", "DPAD_DOWN"), Key("RIGHT", "DPAD_RIGHT"),
+            ),
+        )
+        return buildMap {
+            rows.forEachIndexed { rowIndex, row ->
+                val rowWidth = row.sumOf { it.width.toDouble() }.toFloat()
+                val top = rowIndex.toFloat() / rows.size
+                val bottom = (rowIndex + 1f) / rows.size
+                var left = 0f
+                for (key in row) {
+                    val right = left + key.width / rowWidth
+                    val keycode = KeyEvent.keyCodeFromString("KEYCODE_${key.androidName}")
+                    val shape = listOf(left to top, right to top, right to bottom, left to bottom)
+                    put(key.label, KeyData(key.label, keycode, shape.map { PointF(it.first, it.second) }, emptyList()))
+                    left = right
+                }
+            }
+        }
+    }
+
+
     fun usQwerty(): Map<String, KeyData> = buildMap {
         putAll(numberRow())
         putAll(letterRows())

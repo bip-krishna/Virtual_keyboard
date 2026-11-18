@@ -17,6 +17,8 @@ data class TypingUiState(
     val totalKeyPresses: Int = 0,
     val currentHomography: FloatArray? = null,
     val detectedCorners: List<PointF> = emptyList(),
+    val selectingCorners: Boolean = false,
+    val selectedCorners: List<PointF> = emptyList(),
     val detectedFingertips: List<FingertipState> = emptyList(),
     val developerModeEnabled: Boolean = false,
     val showOverlay: Boolean = true,

@@ -9,6 +9,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import org.opencv.core.CvType
 import org.opencv.core.Mat
+import org.opencv.core.MatOfKeyPoint
 import org.opencv.core.MatOfPoint
 import org.opencv.core.MatOfPoint2f
 import org.opencv.core.Point
@@ -61,7 +62,12 @@ class KeyboardDetector @Inject constructor(
             val candidates = contours
                 .filter { contour ->
                     val area = Imgproc.contourArea(contour)
-                    val perimeter = Imgproc.arcLength(MatOfPoint2f(*contour.toArray()), true)
+                    val curve = MatOfPoint2f(*contour.toArray())
+                    val perimeter = try {
+                        Imgproc.arcLength(curve, true)
+                    } finally {
+                        curve.release()
+                    }
                     if (perimeter == 0.0) return@filter false
                     val ratio = area / (perimeter * perimeter)
                     area in 10_000.0..5_000_000.0 && ratio in 0.005..0.1
@@ -106,11 +112,16 @@ class KeyboardDetector @Inject constructor(
 
         val currentDescriptor = Mat()
         val orb = org.opencv.features2d.ORB.create(1000)
-        orb.detectAndCompute(grayMat, Mat(), currentFeatures.toMutableList(), currentDescriptor)
+        val actualFeatures = MatOfKeyPoint(*currentFeatures.toTypedArray())
+        orb.compute(grayMat, actualFeatures, currentDescriptor)
+        val analyzedFeatures = actualFeatures.toList()
+        actualFeatures.release()
+        orb.clear()
 
         if (referenceDescriptor == null || referenceDescriptor!!.empty() || referenceKeypoints == null) {
             referenceDescriptor = currentDescriptor.clone()
-            referenceKeypoints = currentFeatures
+            referenceKeypoints = analyzedFeatures
+            currentDescriptor.release()
             return KeyboardDetectionResult(
                 detected = false,
                 corners = emptyList(),
@@ -122,7 +133,7 @@ class KeyboardDetector @Inject constructor(
         val matchResult = featureDetector.get().matchFeatures(
             referenceKeypoints!!,
             referenceDescriptor!!,
-            currentFeatures,
+            analyzedFeatures,
             currentDescriptor
         )
 
@@ -164,9 +175,13 @@ class KeyboardDetector @Inject constructor(
         if (keypoints.isNotEmpty()) {
             val descriptor = Mat()
             val orb = org.opencv.features2d.ORB.create(1000)
-            orb.detectAndCompute(grayMat, Mat(), keypoints.toMutableList(), descriptor)
+            val actualFeatures = MatOfKeyPoint(*keypoints.toTypedArray())
+            orb.compute(grayMat, actualFeatures, descriptor)
+            referenceDescriptor?.release()
             referenceDescriptor = descriptor
-            referenceKeypoints = keypoints
+            referenceKeypoints = actualFeatures.toList()
+            actualFeatures.release()
+            orb.clear()
             previousCorners = corners
         }
     }
@@ -194,7 +209,13 @@ class KeyboardDetector @Inject constructor(
             return null
         }
 
-        if (!Imgproc.isContourConvex(approx)) {
+        val integerContour = MatOfPoint(*approx.toArray())
+        val convex = try {
+            Imgproc.isContourConvex(integerContour)
+        } finally {
+            integerContour.release()
+        }
+        if (!convex) {
             approx.release()
             contour2f.release()
             return null
@@ -209,7 +230,7 @@ class KeyboardDetector @Inject constructor(
         val contourArea = Imgproc.contourArea(contour)
         val rectArea = rgbMat.rows() * rgbMat.cols().toDouble()
         val areaRatio = contourArea / rectArea
-        val confidence = (areaRatio * 10f).coerceIn(0f, 1f)
+        val confidence = (areaRatio * 10).coerceIn(0.0, 1.0).toFloat()
 
         approx.release()
         contour2f.release()
@@ -228,22 +249,9 @@ class KeyboardDetector @Inject constructor(
             points.sumOf { it.y } / 4.0
         )
 
-        val sorted = points.sortedWith(compareBy<Point> { it.y < center.y }.thenBy { it.x < center.x })
-
-        val topLeft = sorted.filter { it.x <= center.x && it.y <= center.y }
-            .minByOrNull { it.x + it.y }
-            ?: sorted[0]
-        val topRight = sorted.filter { it.x >= center.x && it.y <= center.y }
-            .maxByOrNull { it.x - it.y }
-            ?: sorted[1]
-        val bottomRight = sorted.filter { it.x >= center.x && it.y >= center.y }
-            .maxByOrNull { it.x + it.y }
-            ?: sorted[2]
-        val bottomLeft = sorted.filter { it.x <= center.x && it.y >= center.y }
-            .minByOrNull { it.x - it.y }
-            ?: sorted[3]
-
-        return listOf(topLeft, topRight, bottomRight, bottomLeft)
+        val clockwise = points.sortedBy { kotlin.math.atan2(it.y - center.y, it.x - center.x) }
+        val topLeft = clockwise.indices.minBy { clockwise[it].x + clockwise[it].y }
+        return List(4) { clockwise[(topLeft + it) % 4] }
     }
 
     private fun projectCorners(
