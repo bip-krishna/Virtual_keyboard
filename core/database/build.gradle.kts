@@ -54,6 +54,7 @@ ksp {
 
 dependencies {
     implementation(project(":core:common"))
+    implementation("org.opencv:opencv:4.9.0")
 
     // Room
     implementation("androidx.room:room-runtime:2.6.1")

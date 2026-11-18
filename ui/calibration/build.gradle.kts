@@ -71,5 +71,6 @@ dependencies {
 
     implementation(project(":ui:theme"))
     implementation(project(":core:common"))
+    implementation("org.opencv:opencv:4.9.0")
     implementation(project(":core:vision"))
 }

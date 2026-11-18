@@ -49,11 +49,13 @@ dependencies {
 
     implementation("androidx.camera:camera-core:1.4.1")
     implementation("androidx.camera:camera-view:1.4.1")
+    implementation("androidx.camera:camera-lifecycle:1.4.1")
 
     implementation(project(":ui:theme"))
     implementation(project(":core:common"))
 
     implementation("com.google.dagger:hilt-android:2.51.1")
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
     ksp("com.google.dagger:hilt-android-compiler:2.51.1")
 
     implementation("androidx.core:core-ktx:1.15.0")
