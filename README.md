@@ -101,15 +101,12 @@ VisionBoard uses computer vision, hand tracking, and Bluetooth HID to turn any f
 5. Master keyboard layout with key polygons saved permanently
 
 ### 2. Live Typing
-1. CameraX captures frames at target FPS
-2. Keyboard cover detected via contour detection (ORB fallback)
-3. Camera pose estimated via homography
-4. Frame warped into calibration space
-5. MediaPipe Hands detects hand landmarks
-6. Fingertips tracked via Kalman filter + temporal smoothing
-7. Touch detected via 6-factor probability scoring (velocity, acceleration, dwell, stability, proximity, history)
-8. Key pressed mapped via point-in-polygon
-9. HID keycode generated and sent over Bluetooth
+1. CameraX sends upright frames to the preview and the on-device model.
+2. MediaPipe returns fingertip landmarks for up to two hands.
+3. OpenCV estimates the keyboard outline, or the user selects its four corners.
+4. A homography maps fingertip positions to the keyboard layout while each hand's motion is tracked independently.
+5. The touch detector scores taps and resolves key polygons.
+6. The app displays the last recognized key and sends it to a connected Bluetooth HID host.
 
 ### 3. Bluetooth HID
 - Phone appears as a standard Bluetooth keyboard
@@ -162,8 +159,8 @@ The app uses Google's [MediaPipe Hand Landmarker](https://developers.google.com/
 
 1. Open VisionBoard, grant camera access, and reach the typing screen. You can skip the guided capture to test live tracking.
 2. Point the rear camera at your hands. Fingertip dots should follow your fingers even before you start a typing session.
-3. Place an ANSI MacBook keyboard cover on a flat surface and keep the phone fixed. If the automatic outline misses it, tap **Set corners** and select top-left, top-right, bottom-right, and bottom-left.
-4. Tap **Start typing**. The app shows the last recognized key. For Bluetooth output, tap the Bluetooth icon, allow visibility, then add VisionBoard from the host computer's Bluetooth settings while the app stays open.
+3. Place an ANSI MacBook keyboard cover on a flat surface and fix the phone at an angle that shows both the full cover and finger motion. If the automatic outline misses it, tap **Set corners** and select top-left, top-right, bottom-right, and bottom-left.
+4. Tap **Start typing**. The app shows the last recognized key. For Bluetooth output, tap the Bluetooth icon, allow visibility, then add the phone from the host computer's Bluetooth settings while the app stays open.
 
 ## Building
 
@@ -172,13 +169,13 @@ Use JDK 17 or 21 with Android SDK Platform 35 installed. Set `ANDROID_HOME` or l
 ```bash
 # Clone and open in Android Studio
 # Or build from command line:
-./gradlew assembleDebug
+./gradlew :app:assembleDebug
 
 # Run tests
-./gradlew test
+./gradlew :app:testDebugUnitTest
 
 # Run instrumented tests
-./gradlew connectedAndroidTest
+./gradlew :app:connectedDebugAndroidTest
 ```
 
 ## Requirements

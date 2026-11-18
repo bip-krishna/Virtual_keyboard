@@ -48,6 +48,10 @@ android {
         viewBinding = true
     }
 
+    androidResources {
+        noCompress += "task"
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
