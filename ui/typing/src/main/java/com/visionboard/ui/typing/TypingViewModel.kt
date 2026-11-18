@@ -238,8 +238,7 @@ class TypingViewModel @Inject constructor(
         if (now - lastTouchTime < DEBOUNCE_INTERVAL_MS) return
         lastTouchTime = now
 
-        bluetoothHidHandler.sendKeyPress(keycode)
-        bluetoothHidHandler.sendKeyRelease(keycode)
+        bluetoothHidHandler.sendKeyTap(keycode)
 
         totalKeyPresses++
         accumulativePresses++

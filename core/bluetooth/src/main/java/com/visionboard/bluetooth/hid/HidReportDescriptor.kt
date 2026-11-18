@@ -10,33 +10,33 @@ class HidReportDescriptor @Inject constructor() {
         // ── Usage Page (Generic Desktop) ──
         0x05, 0x01,        // USAGE_PAGE (Generic Desktop Ctrls)
         0x09, 0x06,        // USAGE (Keyboard)
-        0xA1, 0x01,        // COLLECTION (Application)
+        0xA1.toByte(), 0x01,        // COLLECTION (Application)
 
         // ── Modifier keys (8 bits: LCtrl..RGui) ──
         0x05, 0x07,        //   USAGE_PAGE (Keyboard/Keypad)
-        0x19, 0xE0,        //   USAGE_MINIMUM (Left Control — 0xE0)
-        0x29, 0xE7,        //   USAGE_MAXIMUM (Right GUI — 0xE7)
+        0x19, 0xE0.toByte(),        //   USAGE_MINIMUM (Left Control — 0xE0)
+        0x29, 0xE7.toByte(),        //   USAGE_MAXIMUM (Right GUI — 0xE7)
         0x15, 0x00,        //   LOGICAL_MINIMUM (0)
         0x25, 0x01,        //   LOGICAL_MAXIMUM (1)
         0x75, 0x01,        //   REPORT_SIZE (1)
-        0x95, 0x08,        //   REPORT_COUNT (8)
-        0x81, 0x02,        //   INPUT (Data,Var,Abs) — 8 modifier bits
+        0x95.toByte(), 0x08,        //   REPORT_COUNT (8)
+        0x81.toByte(), 0x02,        //   INPUT (Data,Var,Abs) — 8 modifier bits
 
         // ── Reserved byte ──
-        0x95, 0x01,        //   REPORT_COUNT (1)
+        0x95.toByte(), 0x01,        //   REPORT_COUNT (1)
         0x75, 0x08,        //   REPORT_SIZE (8)
-        0x81, 0x01,        //   INPUT (Const) — reserved byte
+        0x81.toByte(), 0x01,        //   INPUT (Const) — reserved byte
 
         // ── LED output report (5 LEDs + 3 padding bits) ──
         0x05, 0x08,        //   USAGE_PAGE (LEDs)
         0x19, 0x01,        //   USAGE_MINIMUM (Num Lock — 1)
         0x29, 0x05,        //   USAGE_MAXIMUM (Kana — 5)
         0x75, 0x01,        //   REPORT_SIZE (1)
-        0x95, 0x05,        //   REPORT_COUNT (5)
-        0x91, 0x02,        //   OUTPUT (Data,Var,Abs) — 5 LED bits
-        0x95, 0x01,        //   REPORT_COUNT (1)
+        0x95.toByte(), 0x05,        //   REPORT_COUNT (5)
+        0x91.toByte(), 0x02,        //   OUTPUT (Data,Var,Abs) — 5 LED bits
+        0x95.toByte(), 0x01,        //   REPORT_COUNT (1)
         0x75, 0x03,        //   REPORT_SIZE (3)
-        0x91, 0x01,        //   OUTPUT (Const) — LED padding
+        0x91.toByte(), 0x01,        //   OUTPUT (Const) — LED padding
 
         // ── Key array (6 slots, usage 0x00–0x65) ──
         0x05, 0x07,        //   USAGE_PAGE (Keyboard/Keypad)
@@ -45,22 +45,10 @@ class HidReportDescriptor @Inject constructor() {
         0x15, 0x00,        //   LOGICAL_MINIMUM (0)
         0x26, 0x65, 0x00,  //   LOGICAL_MAXIMUM (101)
         0x75, 0x08,        //   REPORT_SIZE (8)
-        0x95, 0x06,        //   REPORT_COUNT (6)
-        0x81, 0x00,        //   INPUT (Data,Array) — 6 key slots
+        0x95.toByte(), 0x06,        //   REPORT_COUNT (6)
+        0x81.toByte(), 0x00,        //   INPUT (Data,Array) — 6 key slots
 
-        // ── Output: LED data report (1 byte) for the host to set LEDs ──
-        0x09, 0x02,        //   USAGE (Num Lock)
-        0x09, 0x03,        //   USAGE (Caps Lock)
-        0x09, 0x04,        //   USAGE (Scroll Lock)
-        0x09, 0x05,        //   USAGE (Compose)
-        0x09, 0x01,        //   USAGE (Kana)
-        0x15, 0x00,        //   LOGICAL_MINIMUM (0)
-        0x25, 0x01,        //   LOGICAL_MAXIMUM (1)
-        0x75, 0x01,        //   REPORT_SIZE (1)
-        0x95, 0x05,        //   REPORT_COUNT (5)
-        0x91, 0x02,        //   OUTPUT (Data,Var,Abs) — 5 LED bits (redundant but spec-conformant)
-
-        0xC0               // END_COLLECTION
+        0xC0.toByte()               // END_COLLECTION
     )
 
     fun buildModifierByte(modifiers: Set<Modifier>): Byte {

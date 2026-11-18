@@ -1,18 +1,21 @@
 package com.visionboard.bluetooth.handler
 
-import android.bluetooth.BluetoothAdapter
+import android.annotation.SuppressLint
 import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothHidDevice
+import android.bluetooth.BluetoothHidDeviceAppSdpSettings
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.content.Context
-import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.visionboard.bluetooth.hid.HidKeyTranslator
+import com.visionboard.bluetooth.hid.HidReportDescriptor
 import com.visionboard.bluetooth.hid.Modifier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,11 +38,13 @@ enum class ConnectionState {
 }
 
 @Singleton
+@SuppressLint("MissingPermission")
 class BluetoothHidHandler @Inject constructor(
     @ApplicationContext private val context: Context,
     private val keyTranslator: HidKeyTranslator,
+    private val reportDescriptor: HidReportDescriptor,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
@@ -53,78 +59,146 @@ class BluetoothHidHandler @Inject constructor(
     val events: SharedFlow<HidEvent> = _events.asSharedFlow()
 
     private var remoteDevice: BluetoothDevice? = null
-    private var hidDevice: Any? = null
-    private var reconnectAttempt = 0
+    private var hidDevice: BluetoothHidDevice? = null
+    private var profileRequested = false
+    private var modifiers = emptySet<Modifier>()
+    private val adapter = context.getSystemService(BluetoothManager::class.java)?.adapter
 
-    private val bluetoothManager: BluetoothManager? =
-        context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+    private val callback = object : BluetoothHidDevice.Callback() {
+        override fun onAppStatusChanged(pluggedDevice: BluetoothDevice?, registered: Boolean) {
+            if (profileRequested) {
+                if (registered) {
+                    _connectionState.value = ConnectionState.WAITING_FOR_PAIRING
+                } else {
+                    clearConnection(ConnectionState.ERROR)
+                    closeProfile()
+                }
+            }
+        }
 
-    private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
+        override fun onConnectionStateChanged(device: BluetoothDevice, state: Int) {
+            if (!profileRequested) return
+            when (state) {
+                BluetoothProfile.STATE_CONNECTING -> _connectionState.value = ConnectionState.PAIRING
+                BluetoothProfile.STATE_CONNECTED -> {
+                    val name = device.name ?: device.address
+                    remoteDevice = device
+                    _remoteDeviceName.value = name
+                    _connectionState.value = ConnectionState.CONNECTED
+                    _isConnected.value = true
+                    _events.tryEmit(HidEvent.Connected(name))
+                }
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    if (remoteDevice == device || remoteDevice == null) {
+                        clearConnection(ConnectionState.WAITING_FOR_PAIRING)
+                        _events.tryEmit(HidEvent.Disconnected("Bluetooth host disconnected"))
+                    }
+                }
+            }
+        }
+    }
 
-    init {
-        obtainHidDeviceProxy()
+    private val profileListener = object : BluetoothProfile.ServiceListener {
+        override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
+            scope.launch {
+                val device = proxy as? BluetoothHidDevice ?: return@launch
+                if (!profileRequested) {
+                    adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, device)
+                    return@launch
+                }
+                hidDevice = device
+                try {
+                    val settings = BluetoothHidDeviceAppSdpSettings(
+                        "VisionBoard", "Camera keyboard", "VisionBoard",
+                        BluetoothHidDevice.SUBCLASS1_KEYBOARD, reportDescriptor.buildKeyboardDescriptor(),
+                    )
+                    if (!device.registerApp(settings, null, null, ContextCompat.getMainExecutor(context), callback)) {
+                        closeProfile()
+                        clearConnection(ConnectionState.ERROR)
+                    }
+                } catch (error: SecurityException) {
+                    Log.w(TAG, "Bluetooth HID registration denied", error)
+                    closeProfile()
+                    clearConnection(ConnectionState.ERROR)
+                }
+            }
+        }
+
+        override fun onServiceDisconnected(profile: Int) {
+            scope.launch {
+                hidDevice = null
+                profileRequested = false
+                clearConnection(ConnectionState.DISCONNECTED)
+            }
+        }
     }
 
     fun connect(): Flow<ConnectionState> = flow {
-        emit(ConnectionState.DISCOVERABLE)
-        _connectionState.value = ConnectionState.DISCOVERABLE
-
-        if (!ensureBluetoothEnabled()) {
-            emit(ConnectionState.ERROR)
-            _connectionState.value = ConnectionState.ERROR
-            return@flow
-        }
-
-        startDiscovery()
-
-        emit(ConnectionState.WAITING_FOR_PAIRING)
-        _connectionState.value = ConnectionState.WAITING_FOR_PAIRING
+        emit(withContext(Dispatchers.Main.immediate) {
+            if (!profileRequested) {
+                try {
+                    profileRequested = adapter?.isEnabled == true &&
+                        adapter.getProfileProxy(context, profileListener, BluetoothProfile.HID_DEVICE)
+                } catch (error: SecurityException) {
+                    Log.w(TAG, "Bluetooth permission denied", error)
+                }
+                _connectionState.value =
+                    if (profileRequested) ConnectionState.DISCOVERABLE else ConnectionState.ERROR
+            }
+            _connectionState.value
+        })
     }
 
     fun disconnect() {
         scope.launch {
-            reconnectAttempt = 0
-            _connectionState.value = ConnectionState.DISCONNECTED
-            _isConnected.value = false
-            _remoteDeviceName.value = null
-            remoteDevice = null
-            disconnectHidDevice()
+            val device = hidDevice
+            try {
+                remoteDevice?.let { device?.disconnect(it) }
+                device?.unregisterApp()
+            } catch (error: SecurityException) {
+                Log.w(TAG, "Could not unregister Bluetooth HID", error)
+            } finally {
+                closeProfile()
+                clearConnection(ConnectionState.DISCONNECTED)
+            }
+        }
+    }
+
+    fun sendKeyTap(keycode: Int) {
+        scope.launch {
+            val usage = keyTranslator.translateKeycodeToHidUsage(keycode)
+            if (usage == 0) return@launch
+            if (sendHidReport(usage)) {
+                _events.tryEmit(HidEvent.KeyPressed(keycode, usage))
+                if (sendHidReport(0)) _events.tryEmit(HidEvent.KeyReleased(keycode))
+            }
         }
     }
 
     fun sendKeyPress(keycode: Int) {
         scope.launch {
-            if (_connectionState.value != ConnectionState.CONNECTED) {
-                Log.w(TAG, "Cannot send key press — not connected")
-                return@launch
-            }
-            val hidUsage = keyTranslator.translateKeycodeToHidUsage(keycode)
-            sendHidReport(hidUsage, emptySet())
-            _events.emit(HidEvent.KeyPressed(keycode, hidUsage))
+            val usage = keyTranslator.translateKeycodeToHidUsage(keycode)
+            if (usage != 0 && sendHidReport(usage)) _events.tryEmit(HidEvent.KeyPressed(keycode, usage))
         }
     }
 
     fun sendKeyRelease(keycode: Int) {
         scope.launch {
-            if (_connectionState.value != ConnectionState.CONNECTED) return@launch
-            sendHidReport(0, emptySet())
-            _events.emit(HidEvent.KeyReleased(keycode))
+            if (sendHidReport(0)) _events.tryEmit(HidEvent.KeyReleased(keycode))
         }
     }
 
     fun sendModifierPress(modifier: Modifier) {
         scope.launch {
-            if (_connectionState.value != ConnectionState.CONNECTED) return@launch
-            sendModifierHidReport(setOf(modifier))
-            _events.emit(HidEvent.ModifierPressed(modifier))
+            modifiers = modifiers + modifier
+            if (sendHidReport(0)) _events.tryEmit(HidEvent.ModifierPressed(modifier))
         }
     }
 
     fun sendModifierRelease(modifier: Modifier) {
         scope.launch {
-            if (_connectionState.value != ConnectionState.CONNECTED) return@launch
-            sendModifierHidReport(emptySet())
-            _events.emit(HidEvent.ModifierReleased(modifier))
+            modifiers = modifiers - modifier
+            if (sendHidReport(0)) _events.tryEmit(HidEvent.ModifierReleased(modifier))
         }
     }
 
@@ -134,169 +208,44 @@ class BluetoothHidHandler @Inject constructor(
 
     fun getRemoteDeviceName(): String? = _remoteDeviceName.value
 
-    private fun obtainHidDeviceProxy() {
-        try {
-            val getHidDevice = bluetoothAdapter?.javaClass?.getMethod("getHidDevice")
-            hidDevice = getHidDevice?.invoke(bluetoothAdapter)
-            Log.d(TAG, "BluetoothHidDevice proxy obtained: ${hidDevice != null}")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to obtain BluetoothHidDevice proxy via reflection", e)
-            hidDevice = null
-        }
-    }
-
-    private suspend fun ensureBluetoothEnabled(): Boolean {
-        if (bluetoothAdapter?.isEnabled == true) return true
+    private fun sendHidReport(usage: Int): Boolean {
+        val device = remoteDevice ?: return false
+        val bytes = reportDescriptor.buildKeyReport(usage)
+        bytes[0] = reportDescriptor.buildModifierByte(modifiers)
         return try {
-            bluetoothAdapter?.enable()
-            delay(1500)
-            bluetoothAdapter?.isEnabled == true
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Missing BLUETOOTH_ADMIN permission to enable adapter", e)
+            hidDevice?.sendReport(device, KEYBOARD_REPORT_ID, bytes) == true
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Bluetooth report denied", error)
             false
         }
     }
 
-    private fun startDiscovery() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                bluetoothAdapter?.startDiscovery()
-            } else {
-                @Suppress("DEPRECATION")
-                bluetoothAdapter?.startDiscovery()
-            }
-        } catch (e: SecurityException) {
-            Log.e(TAG, "Cannot start discovery", e)
-        }
+    private fun clearConnection(state: ConnectionState) {
+        remoteDevice = null
+        modifiers = emptySet()
+        _remoteDeviceName.value = null
+        _isConnected.value = false
+        _connectionState.value = state
     }
 
-    private fun connectToDevice(device: BluetoothDevice) {
-        remoteDevice = device
-        _remoteDeviceName.value = device.name ?: device.address
-
-        scope.launch {
-            _connectionState.value = ConnectionState.PAIRING
-            try {
-                val pairResult = device.createBond()
-                if (!pairResult) {
-                    _connectionState.value = ConnectionState.ERROR
-                    return@launch
-                }
-                _connectionState.value = ConnectionState.CONNECTED
-                _isConnected.value = true
-                reconnectAttempt = 0
-                _events.emit(HidEvent.Connected(device.name ?: device.address))
-            } catch (e: SecurityException) {
-                Log.e(TAG, "Pairing failed due to missing permission", e)
-                _connectionState.value = ConnectionState.ERROR
-                _events.emit(HidEvent.Error("Pairing permission denied"))
-            }
-        }
-    }
-
-    private fun sendHidReport(hidUsage: Int, modifiers: Set<Modifier>) {
-        try {
-            if (hidDevice == null) {
-                Log.w(TAG, "HID device proxy not available, simulating report")
-                return
-            }
-            val sendReportMethod = hidDevice!!.javaClass.getMethod(
-                "sendReport",
-                BluetoothDevice::class.java,
-                Int::class.javaPrimitiveType,
-                ByteArray::class.java,
-            )
-            val report = byteArrayOf(
-                0x00, // modifier byte
-                0x00, // reserved
-                (hidUsage and 0xFF).toByte(),
-                0x00, 0x00, 0x00, 0x00, 0x00,
-            )
-            sendReportMethod.invoke(hidDevice, remoteDevice, REPORT_ID_KEYBOARD, report)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send HID report", e)
-        }
-    }
-
-    private fun sendModifierHidReport(modifiers: Set<Modifier>) {
-        try {
-            if (hidDevice == null) return
-            var modifierByte = 0x00
-            for (mod in modifiers) {
-                modifierByte = modifierByte or (1 shl mod.bitPosition)
-            }
-            val report = byteArrayOf(
-                modifierByte.toByte(),
-                0x00,
-                0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            )
-            val sendReportMethod = hidDevice!!.javaClass.getMethod(
-                "sendReport",
-                BluetoothDevice::class.java,
-                Int::class.javaPrimitiveType,
-                ByteArray::class.java,
-            )
-            sendReportMethod.invoke(hidDevice, remoteDevice, REPORT_ID_KEYBOARD, report)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to send modifier HID report", e)
-        }
-    }
-
-    private fun disconnectHidDevice() {
-        try {
-            if (hidDevice == null) return
-            val disconnectMethod = hidDevice!!.javaClass.getMethod("disconnect")
-            disconnectMethod.invoke(hidDevice)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to disconnect HID device", e)
-        }
+    private fun closeProfile() {
+        profileRequested = false
+        hidDevice?.let { adapter?.closeProfileProxy(BluetoothProfile.HID_DEVICE, it) }
+        hidDevice = null
     }
 
     fun handleDeviceFound(device: BluetoothDevice) {
-        scope.launch {
-            _events.emit(HidEvent.DeviceFound(device.name ?: device.address, device.address))
-        }
+        _events.tryEmit(HidEvent.DeviceFound(device.name ?: device.address, device.address))
     }
 
     fun handlePairingStateChange(device: BluetoothDevice, bondState: Int) {
-        when (bondState) {
-            BluetoothDevice.BOND_NONE -> {
-                _connectionState.value = ConnectionState.DISCONNECTED
-                _isConnected.value = false
-                scope.launch { _events.emit(HidEvent.Disconnected("Pairing removed")) }
-            }
-            BluetoothDevice.BOND_BONDING -> {
-                _connectionState.value = ConnectionState.PAIRING
-            }
-            BluetoothDevice.BOND_BONDED -> {
-                _connectionState.value = ConnectionState.CONNECTED
-                _isConnected.value = true
-                _remoteDeviceName.value = device.name ?: device.address
-                reconnectAttempt = 0
-                scope.launch { _events.emit(HidEvent.Connected(device.name ?: device.address)) }
-            }
+        if (device == remoteDevice && bondState == BluetoothDevice.BOND_NONE) {
+            clearConnection(ConnectionState.DISCONNECTED)
         }
     }
 
-    suspend fun attemptReconnect(): Boolean {
-        val maxAttempts = 10
-        while (reconnectAttempt < maxAttempts) {
-            reconnectAttempt++
-            val backoffMs = (RECONNECT_BASE_DELAY_MS * (1L shl (reconnectAttempt - 1)))
-                .coerceAtMost(RECONNECT_MAX_DELAY_MS)
-            Log.d(TAG, "Reconnect attempt $reconnectAttempt/$maxAttempts in ${backoffMs}ms")
-            delay(backoffMs)
-
-            val device = remoteDevice ?: return false
-            try {
-                connectToDevice(device)
-                if (_isConnected.value) return true
-            } catch (e: Exception) {
-                Log.w(TAG, "Reconnect attempt $reconnectAttempt failed", e)
-            }
-        }
-        reconnectAttempt = 0
-        return false
+    suspend fun attemptReconnect(): Boolean = withContext(Dispatchers.Main.immediate) {
+        remoteDevice?.let { hidDevice?.connect(it) } == true
     }
 
     sealed class HidEvent {
@@ -312,8 +261,6 @@ class BluetoothHidHandler @Inject constructor(
 
     companion object {
         private const val TAG = "BluetoothHidHandler"
-        private const val REPORT_ID_KEYBOARD = 1
-        private const val RECONNECT_BASE_DELAY_MS = 1000L
-        private const val RECONNECT_MAX_DELAY_MS = 30_000L
+        private const val KEYBOARD_REPORT_ID = 0
     }
 }

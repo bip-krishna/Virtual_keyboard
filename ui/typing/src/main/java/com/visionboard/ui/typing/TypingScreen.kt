@@ -1,7 +1,10 @@
 package com.visionboard.ui.typing
 
 import android.Manifest
+import android.bluetooth.BluetoothAdapter
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.graphics.Bitmap
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -105,6 +108,33 @@ fun TypingScreen(
         if (!cameraGranted) cameraPermission.launch(Manifest.permission.CAMERA)
     }
 
+    val discoverable = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        if (it.resultCode > 0) viewModel.requestBluetoothPairing()
+    }
+    val showBluetoothDiscovery = {
+        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_DISCOVERABLE)
+            .putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 120)
+        discoverable.launch(intent)
+    }
+    val bluetoothPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results.values.all { it }) showBluetoothDiscovery()
+    }
+    val requestBluetooth = {
+        if (!state.bluetoothConnected) {
+            val permissions = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_ADVERTISE)
+            } else {
+                emptyList()
+            }
+            val missing = permissions.filter {
+                ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isEmpty()) showBluetoothDiscovery() else bluetoothPermission.launch(missing.toTypedArray())
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(SurfaceDark)) {
         Column(modifier = Modifier.fillMaxSize()) {
 
@@ -115,7 +145,7 @@ fun TypingScreen(
                 exit = slideOutVertically() + fadeOut(),
             ) {
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable { viewModel.requestBluetoothPairing() },
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = requestBluetooth),
                     color = ErrorRed,
                     tonalElevation = 2.dp,
                 ) {
@@ -244,7 +274,7 @@ fun TypingScreen(
                     Spacer(Modifier.width(8.dp))
 
                     // Bluetooth status
-                    IconButton(onClick = { viewModel.requestBluetoothPairing() }) {
+                    IconButton(onClick = requestBluetooth) {
                         Icon(
                             imageVector = if (state.bluetoothConnected)
                                 Icons.Default.BluetoothConnected else Icons.Default.Bluetooth,
