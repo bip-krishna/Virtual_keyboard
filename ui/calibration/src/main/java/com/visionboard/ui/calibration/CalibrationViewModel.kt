@@ -60,6 +60,7 @@ class CalibrationViewModel @Inject constructor() : ViewModel() {
     val showErrorOverlay: StateFlow<String?> = _showErrorOverlay.asStateFlow()
 
     private var imageCapture: ImageCapture? = null
+    private var cameraPreview: Preview? = null
     private var cameraProvider: ProcessCameraProvider? = null
     private val captureExecutor = Executors.newSingleThreadExecutor()
 
@@ -91,6 +92,7 @@ class CalibrationViewModel @Inject constructor() : ViewModel() {
                 )
                 .build()
 
+            cameraPreview = preview
             val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
             try {
@@ -111,6 +113,7 @@ class CalibrationViewModel @Inject constructor() : ViewModel() {
     }
 
     fun onCameraPreviewReady(previewView: PreviewView) {
+        cameraPreview?.setSurfaceProvider(previewView.surfaceProvider)
         if (_uiState.value is CalibrationUiState.CameraReady) {
             val step = _currentStep.value
             _uiState.value = CalibrationUiState.Capturing(
@@ -393,7 +396,8 @@ class CalibrationViewModel @Inject constructor() : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         captureExecutor.shutdown()
-        cameraProvider?.unbindAll()
+        cameraPreview?.let { cameraProvider?.unbind(it) }
+        imageCapture?.let { cameraProvider?.unbind(it) }
     }
 }
 

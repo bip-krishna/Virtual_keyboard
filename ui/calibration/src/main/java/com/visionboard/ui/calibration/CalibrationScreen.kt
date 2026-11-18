@@ -130,7 +130,7 @@ fun CalibrationScreen(
         }
     }
 
-    LaunchedEffect(hasCameraPermission) {
+    LaunchedEffect(hasCameraPermission, uiState is CalibrationUiState.Idle) {
         if (hasCameraPermission && uiState is CalibrationUiState.Idle) {
             viewModel.initializeCamera(context, lifecycleOwner)
         }
@@ -150,7 +150,7 @@ fun CalibrationScreen(
                 onRequestPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
             )
 
-            uiState is CalibrationUiState.Idle || uiState is CalibrationUiState.CameraReady -> {
+            uiState is CalibrationUiState.Idle -> {
                 LoadingCameraOverlay()
             }
 
