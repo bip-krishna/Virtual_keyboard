@@ -154,7 +154,13 @@ The app does NOT simply check if a fingertip is inside a key polygon. It uses a 
 - **Wi-Fi mode** - TCP/WebSocket fallback for devices without Bluetooth HID support
 - **Calibration export/import** - Backup and share calibration data
 
+## Hand tracking model
+
+The app uses Google's [MediaPipe Hand Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/hand_landmarker). Gradle downloads the official float16 v1 task bundle, verifies its SHA-256, and packages it in the APK. Inference runs on the phone and works offline after installation.
+
 ## Building
+
+Use JDK 17 or 21 with Android SDK Platform 35 installed. Set `ANDROID_HOME` or let Android Studio generate `local.properties`.
 
 ```bash
 # Clone and open in Android Studio
